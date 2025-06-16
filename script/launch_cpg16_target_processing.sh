@@ -1,0 +1,1 @@
+cellprofiler.exe -c -r -p "C:\Users\alexi\Documents\dev\portfolio\imaging\segmentation\cellprofiler\segmentation_pipeline_v2.cppipe" --data-file "C:\Users\alexi\Documents\data\images\cellpainting\cpg0016-jump\data\metadata_targets_wide_filtered.csv" -o  "C:\Users\alexi\Documents\data\images\cellpainting\cpg0016-jump\data\results_target"

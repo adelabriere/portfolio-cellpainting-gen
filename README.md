@@ -1,0 +1,1 @@
+This project aims to present a CellProfiler based cell segmenetation pipeline to extract cell mask and the number of cell by images.
