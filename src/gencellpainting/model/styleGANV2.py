@@ -197,7 +197,7 @@ class SG2DiscriminatorBlock(nn.Module):
 class StyleVectorizer(nn.Module):
     # TODO add leraning rate multiple
     def __init__(self, style_size, nlayers):
-        super(self, StyleVectorizer).__init__()
+        super(StyleVectorizer, self).__init__()
         self.style_size = style_size
         self.nlayers = nlayers
         self.layers = nn.ModuleList()
@@ -215,7 +215,7 @@ class StyleVectorizer(nn.Module):
 
 class Generator(nn.Module):
     def __init__(self, in_channel, image_size, latent_dim, network_capacity=16):
-        super(self, Generator).__init__()
+        super(Generator, self).__init__()
         self.in_channel = in_channel
         self.image_size = image_size
         self.latent_dim = latent_dim
@@ -239,17 +239,17 @@ class Generator(nn.Module):
 
         # BUIlding the layers
         self.layers = nn.ModuleList()
-        for i in range(num_layers):
+        for i in range(num_layers-1):
             coutput_size = output_image_channel[i]
             cinput_size = input_image_channel[i]
-            self.layers.append(SG2GeneratorBlock(latent_dim=self.style_size,in_channel=cinput_size, final_channel = coutput_size,\
+            self.layers.append(SG2GeneratorBlock(latent_dim=self.latent_dim,in_channel=cinput_size, final_channel = coutput_size,\
                                                  out_channel=in_channel, upsample = True))
             
         
     def forward(self, styles, noise):
         # Input:
         #  styles: W x B x C
-        x = self.initial_tensor.expand(s.shape[0], -1, -1, -1)
+        x = self.initial_tensor.expand(styles.shape[0], -1, -1, -1)
         x = self.initial_conv(x)
         o = None
         for s,layer in zip(styles,self.layers):
@@ -277,7 +277,7 @@ class Discriminator(nn.Module):
 # class SG2DiscriminatorBlock(nn.Module):
 #     def __init__(self, in_channel, out_channel, downsample=True):
 
-        for i in range(num_layers):
+        for i in range(num_layers-1):
             self.layers.append(SG2DiscriminatorBlock(in_channel=input_image_channel[i], out_channel=output_image_channel[i], downsample=True))#(i!=num_layers-1)))
 
 
