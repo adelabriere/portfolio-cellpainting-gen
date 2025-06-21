@@ -10,7 +10,8 @@ import lightning as L
 
 # Utility funciton
 def generate_noise(batch_size, image_size):
-    return torch.randn(batch_size, 1, image_size, image_size)
+    # 1 isa ont th elast diemsion to be passed through a linear layer
+    return torch.randn(batch_size, image_size, image_size, 1)
 
 
 class SG2ModConvNorm(nn.Module):
@@ -31,11 +32,11 @@ class SG2ModConvNorm(nn.Module):
         #   S: Style vector, B x C
         # Output:
         #      Images B x Co x H x W
-
         B, Ci, H, W = X.shape
         K = self.kernel_size
         Co = self.out_channel
 
+        # B x Ci
         # B x 1 x Ci x 1 x 1
         Se = S[:,None,:,None,None]
 
@@ -46,13 +47,14 @@ class SG2ModConvNorm(nn.Module):
         # B x Co x Ci x K x K
         w1 = We * Se
 
+        weights = w1
         if self.demod:
             # B x Co x 1 x 1 x 1
             norm_factor = torch.rsqrt( ((w1**2).sum(dim=(2,3,4), keepdim=True) + self.epsilon) )
 
             # Demodulating
             # B x Co x Ci x K x K
-            weights = w1 *  norm_factor
+            weights = weights *  norm_factor
 
         # 1 x (B x Ci) x H x W
         X = X.reshape(1, -1, H, W)
@@ -72,6 +74,8 @@ class SG2OutputBlock(nn.Module):
         super(SG2OutputBlock, self).__init__()
         self.in_channel = in_channel
         self.out_channel = out_channel
+        self.latent_dim = latent_dim
+
         self.to_style = nn.Linear(latent_dim, in_channel)
         self.conv = SG2ModConvNorm(in_channel, out_channel, 1, demod=False)
         self.upsample = nn.Sequential(
@@ -80,6 +84,7 @@ class SG2OutputBlock(nn.Module):
         ) if upsample else None
 
     def forward(self, x, prev_rgb, s):
+        print("shapes x {} s {}".format(x.shape, s.shape))
         s = self.to_style(s)
         x = self.conv(x, s)
 
@@ -92,7 +97,7 @@ class SG2OutputBlock(nn.Module):
 
 
 class SG2GeneratorBlock(nn.Module):
-    def __init__(self, latent_dim, in_channel, out_channel, final_channel, kernel_size=3, upsample=True, epsilon=1e-7):
+    def __init__(self, latent_dim, in_channel, out_channel, final_channel, kernel_size=3, upsample=True, upsample_output=True, epsilon=1e-7):
         super(SG2GeneratorBlock, self).__init__()
         
         self.latent_dim = latent_dim
@@ -115,7 +120,7 @@ class SG2GeneratorBlock(nn.Module):
 
 
         self.activation = nn.LeakyReLU(negative_slope = 0.1)
-        self.output_block = SG2OutputBlock(latent_dim, in_channel, final_channel, upsample)
+        self.output_block = SG2OutputBlock(latent_dim, out_channel, final_channel, upsample_output)
 
     def forward(self, x, s, noise, prev_output):
         # Input:
@@ -148,9 +153,9 @@ class SG2GeneratorBlock(nn.Module):
 
         # 1 x B x Co
         s2 = self.to_style2(s)
-
+     
         x = self.conv1(x, s1)
-        x = self.activation(x + noise1)
+        x = self.activation(x + noise1)     
         x = self.conv2(x, s2)
         x = self.activation(x + noise2)
 
@@ -242,18 +247,20 @@ class Generator(nn.Module):
         for i in range(num_layers-1):
             coutput_size = output_image_channel[i]
             cinput_size = input_image_channel[i]
-            self.layers.append(SG2GeneratorBlock(latent_dim=self.latent_dim,in_channel=cinput_size, final_channel = coutput_size,\
-                                                 out_channel=in_channel, upsample = True))
-            
+            print("i {} {}".format(cinput_size,coutput_size))
+            self.layers.append(SG2GeneratorBlock(latent_dim=self.latent_dim,in_channel=cinput_size, out_channel=coutput_size,\
+                                                final_channel = in_channel, upsample = i!=0, upsample_output= (i!=(num_layers-1))))
         
     def forward(self, styles, noise):
         # Input:
         #  styles: W x B x C
-        x = self.initial_tensor.expand(styles.shape[0], -1, -1, -1)
+        x = self.initial_tensor.expand(styles.shape[1], -1, -1, -1)
         x = self.initial_conv(x)
+        layer_idx = 0
         o = None
         for s,layer in zip(styles,self.layers):
             x, o = layer(x, s, noise, o)
+            layer_idx += 1
         return o
 
       
