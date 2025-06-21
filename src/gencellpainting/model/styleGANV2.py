@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import math
 import torch
-
+from abc_model import UnsupervisedImageGenerator
 import lightning as L
 
 
@@ -182,7 +182,7 @@ class SG2DiscriminatorBlock(nn.Module):
         )
         self.reshape_residual = nn.Conv2d(in_channel, out_channel, kernel_size=1, stride=(2 if downsample else 1))
 
-        self.downsample = nn.Conv2d(out_channel, out_channel, stride = 2) if downsample else None
+        self.downsample = nn.Conv2d(out_channel, out_channel, kernel_size=3, stride = 2, padding=1) if downsample else None
 
     def forward(self, x):
         # Input:
@@ -195,6 +195,7 @@ class SG2DiscriminatorBlock(nn.Module):
         if self.downsample is not None:
             x = self.downsample(x)
         x = (x + res) * (1 / math.sqrt(2))
+        return x
 
 
 
@@ -274,7 +275,7 @@ class Discriminator(nn.Module):
 
         # Num layers is based on initial image size
         num_layers = int(math.log2(image_size) - 1)
-        conv_channel = [in_channel]+[network_capacity*4*(2**i) for i in range(num_layers-1)]
+        conv_channel = [in_channel]+[network_capacity*4*(2**i) for i in range(num_layers)]
 
         input_image_channel = conv_channel[:-1]
         output_image_channel = conv_channel[1:]
@@ -284,8 +285,9 @@ class Discriminator(nn.Module):
 # class SG2DiscriminatorBlock(nn.Module):
 #     def __init__(self, in_channel, out_channel, downsample=True):
 
-        for i in range(num_layers-1):
-            self.layers.append(SG2DiscriminatorBlock(in_channel=input_image_channel[i], out_channel=output_image_channel[i], downsample=True))#(i!=num_layers-1)))
+        for i in range(num_layers):
+            self.layers.append(SG2DiscriminatorBlock(in_channel=input_image_channel[i],\
+                                                     out_channel=output_image_channel[i], downsample= True))#i!=(num_layers-1)))
 
 
         last_dim = conv_channel[-1] * 2 * 2
@@ -294,8 +296,13 @@ class Discriminator(nn.Module):
         self.to_logit = nn.Linear(last_dim, 1)
 
     def forward(self, x):
+        ilayer = 0
         for layer in self.layers:
             x = layer(x)
+            ilayer += 1
         x = self.flatten(x)
         x = self.to_logit(x)
         return x
+    
+
+class SG2(UnsupervisedImageGenerator):
