@@ -9,12 +9,12 @@ import lightning as L
 
 
 # Utility funciton
-def generate_noise(batch_size, image_size):
+def generate_noise(batch_size, image_size, device):
     # 1 isa ont th elast diemsion to be passed through a linear layer
-    return torch.randn(batch_size, image_size, image_size, 1)
+    return torch.randn(batch_size, image_size, image_size, 1).to(device)
 
-def generate_style(nlayers, batch_size, latent_dim):
-    return torch.randn(nlayers, batch_size, latent_dim)
+def generate_style(nlayers, batch_size, latent_dim, device):
+    return torch.randn(nlayers, batch_size, latent_dim).to(device)
 
 
 class SG2ModConvNorm(nn.Module):
@@ -87,7 +87,7 @@ class SG2OutputBlock(nn.Module):
         ) if upsample else None
 
     def forward(self, x, prev_rgb, s):
-        print("shapes x {} s {}".format(x.shape, s.shape))
+        # print("shapes x {} s {}".format(x.shape, s.shape))
         s = self.to_style(s)
         x = self.conv(x, s)
 
@@ -358,13 +358,14 @@ class SG2SimpleGAN(UnsupervisedImageGenerator):
             param.requires_grad = True
 
     def configure_optimizers(self):
-        gen_optimizer = torch.optim.Adam(self.G.parameters()+self.Snet.parameters(), lr=self.learning_rate)
+        gen_optimizer = torch.optim.Adam(list(self.G.parameters())+list(self.Snet.parameters()), lr=self.learning_rate)
         disc_optimizer = torch.optim.Adam(self.D.parameters(), lr=self.learning_rate)
         return gen_optimizer, disc_optimizer
     
     def generate_images(self, batch=None, n=None):
-        noise = generate_noise(n, self.image_size)
-        S = generate_style(self.gen_layers, n, self.latent_dim)
+        device = batch.device
+        noise = generate_noise(n, self.image_size, device=device)
+        S = generate_style(self.gen_layers, n, self.latent_dim, device = device)
         W = self.Snet(S)
         return self.G(W, noise)
     
@@ -372,6 +373,7 @@ class SG2SimpleGAN(UnsupervisedImageGenerator):
         real_imgs, real_imgs_dics = batch
         B = real_imgs.shape[0]
         Bd = real_imgs_dics.shape[0]
+        device = real_imgs.device
 
         Gopt, Dopt = self.optimizers()
 
@@ -383,7 +385,7 @@ class SG2SimpleGAN(UnsupervisedImageGenerator):
             Dopt.zero_grad()
             
             # Generate images
-            fake_imgs = self.generate_images(n=Bd)
+            fake_imgs = self.generate_images(real_imgs,n=Bd)
 
             # Discriminator loss
             p_fake = F.sigmoid(self.D(fake_imgs))
@@ -402,7 +404,7 @@ class SG2SimpleGAN(UnsupervisedImageGenerator):
         Gopt.zero_grad()
 
         # Generate images
-        fake_imgs = self.generate_images(n=B)
+        fake_imgs = self.generate_images(real_imgs,n=B)
 
         # Generator loss
         p_fake = F.sigmoid(self.D(fake_imgs))
@@ -411,4 +413,4 @@ class SG2SimpleGAN(UnsupervisedImageGenerator):
         self.manual_backward(gen_loss)
         Gopt.step()
             
-        return super().training_step(batch, batch_idx)
+        return super().training_step(batch[0], batch_idx)
