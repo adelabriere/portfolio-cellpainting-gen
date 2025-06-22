@@ -1,10 +1,10 @@
-from conv_modules import UpsampleConvStack, Conv2dTransposeStack, Conv2dStack
+from .conv_modules import UpsampleConvStack, Conv2dTransposeStack, Conv2dStack
 import torch.nn as nn
 import torch.nn.functional as F
 import torch
-from VAE import Decoder, Encoder
+from .VAE import Decoder, Encoder
 import lightning as L
-from abc_model import UnsupervisedImageGenerator
+from .abc_model import UnsupervisedImageGenerator
 
 
 

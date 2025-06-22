@@ -4,7 +4,7 @@ import torch.nn.functional as F
 import torch
 from GAN import GeneratorV2, GeneratorV2ShallowFC
 import lightning as L
-from abc_model import UnsupervisedImageGenerator
+from .abc_model import UnsupervisedImageGenerator
 
    
 

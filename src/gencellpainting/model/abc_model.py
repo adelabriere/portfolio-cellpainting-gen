@@ -1,8 +1,8 @@
-from conv_modules import Conv2dStack,Conv2dTransposeStack
+from gencellpainting.model.conv_modules import Conv2dStack,Conv2dTransposeStack
 import torch
 import lightning as L
 
-from plotting import multi_channel_tensor_to_flat_matrix
+from gencellpainting.plotting import multi_channel_tensor_to_flat_matrix
 
 
 class UnsupervisedImageGenerator(L.LightningModule):

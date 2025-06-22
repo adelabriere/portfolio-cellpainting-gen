@@ -1,7 +1,7 @@
 import pytest
 import torch
 import math
-from gencellpainting.model.styleGANV2 import Generator,Discriminator, generate_noise
+from gencellpainting.model.styleGANV2 import Generator,Discriminator, SG2SimpleGAN, generate_noise, generate_style
 
 C = 6
 L = 32
@@ -14,7 +14,7 @@ def fake_data():
     nlayers = int(math.log2(IMG_SIZE)-1)
 
     imgs = torch.rand((BATCH_SIZE, C, IMG_SIZE, IMG_SIZE))*255
-    styles = torch.rand((nlayers,BATCH_SIZE, L))
+    styles = generate_style(nlayers,BATCH_SIZE, L)
     noise = generate_noise(BATCH_SIZE, IMG_SIZE)
     return {"images":imgs,"styles":styles,"noise":noise}
 
@@ -36,5 +36,12 @@ def test_stylegan2_discriminator(fake_data):
 
     assert dprob.shape == (BATCH_SIZE, 1)
 
-# def test_stylagan2(fake_data):
 
+def test_stylegan2_lighning(fake_data):
+    disc_images = fake_data["images"]
+
+    sg2 = SG2SimpleGAN(L, C, IMG_SIZE, network_capacity=4)
+
+    new_images = sg2.generate_images(n=4)
+
+    assert new_images.shape == (4, C, IMG_SIZE, IMG_SIZE)

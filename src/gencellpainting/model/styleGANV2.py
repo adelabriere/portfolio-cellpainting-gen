@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import math
 import torch
-from abc_model import UnsupervisedImageGenerator
+from .abc_model import UnsupervisedImageGenerator
 import lightning as L
 
 
@@ -12,6 +12,9 @@ import lightning as L
 def generate_noise(batch_size, image_size):
     # 1 isa ont th elast diemsion to be passed through a linear layer
     return torch.randn(batch_size, image_size, image_size, 1)
+
+def generate_style(nlayers, batch_size, latent_dim):
+    return torch.randn(nlayers, batch_size, latent_dim)
 
 
 class SG2ModConvNorm(nn.Module):
@@ -198,25 +201,6 @@ class SG2DiscriminatorBlock(nn.Module):
         return x
 
 
-
-# Defining the style embedding
-class StyleVectorizer(nn.Module):
-    # TODO add leraning rate multiple
-    def __init__(self, style_size, nlayers):
-        super(StyleVectorizer, self).__init__()
-        self.style_size = style_size
-        self.nlayers = nlayers
-        self.layers = nn.ModuleList()
-        self.layers.append(nn.Linear(style_size, style_size))
-        for i in range(nlayers):
-            self.layers.append(nn.Linear(style_size, style_size))
-
-    def forward(self, x):
-        x = F.normalize(x)
-        return self.layers(x)
-
-
-
 # D
 
 class Generator(nn.Module):
@@ -229,6 +213,7 @@ class Generator(nn.Module):
 
         # Num layers is based on initial image size
         num_layers = int(math.log2(image_size) - 1)
+        self.num_layers = num_layers
 
         # Learned initial tensor 
         self.initial_tensor = nn.Parameter(torch.randn(1, in_channel, 4, 4))
@@ -304,5 +289,126 @@ class Discriminator(nn.Module):
         x = self.to_logit(x)
         return x
     
+# Style encoding values
+class StyleEncoder(nn.Module):
+    def __init__(self, latent_dim, depth):
+        super(StyleEncoder, self).__init__()
+        self.latent_dim = latent_dim
+        self.depth = depth
 
-class SG2(UnsupervisedImageGenerator):
+        layers_list = []
+        
+
+        for i in range(self.depth):
+            layers_list.append(nn.Linear(self.latent_dim, self.latent_dim))
+            layers_list.append(nn.LeakyReLU(0.2))
+        
+        self.layers = nn.Sequential(*layers_list)
+
+    def forward(self, x):
+
+        x = F.normalize(x, dim=1)
+        for layer in self.layers:
+            x = layer(x)
+        return x
+
+
+class SG2SimpleGAN(UnsupervisedImageGenerator):
+    def __init__(self, latent_dim, image_channel, image_size, style_depth=6, network_capacity=4,\
+                 disc_training_interval=5, epoch_monitoring_interval=1, n_images_monitoring=6, learning_rate = 1e-4):
+        super(SG2SimpleGAN, self).__init__(epoch_monitoring_interval=epoch_monitoring_interval, n_images_monitoring=n_images_monitoring, add_original=True)
+
+        self.latent_dim = latent_dim
+        self.image_channel = image_channel
+        self.image_size = image_size
+        self.network_capacity = network_capacity
+        self.style_depth = style_depth
+        self.disc_training_interval = disc_training_interval
+
+        self.G = Generator(image_channel, image_size, latent_dim, network_capacity)
+        self.D = Discriminator(image_channel, image_size, network_capacity)
+        self.Snet = StyleEncoder(latent_dim, depth = style_depth)
+        
+        self.gen_layers = self.G.num_layers
+
+        self.loss = F.binary_cross_entropy
+        self.learning_rate = learning_rate
+        self.automatic_optimization = False
+
+
+    # Utility function for training
+    def disable_discriminator_training(self):
+        for param in self.D.parameters():
+            param.requires_grad = False
+
+    def enable_discriminator_training(self):
+        for param in self.D.parameters():
+            param.requires_grad = True
+
+    def disable_generator_training(self):
+        for param in self.G.parameters():
+            param.requires_grad = False
+        for param in self.Snet.parameters():
+            param.requires_grad = False
+    
+    def enable_generator_training(self):
+        for param in self.G.parameters():
+            param.requires_grad = True
+        for param in self.Snet.parameters():
+            param.requires_grad = True
+
+    def configure_optimizers(self):
+        gen_optimizer = torch.optim.Adam(self.G.parameters()+self.Snet.parameters(), lr=self.learning_rate)
+        disc_optimizer = torch.optim.Adam(self.D.parameters(), lr=self.learning_rate)
+        return gen_optimizer, disc_optimizer
+    
+    def generate_images(self, batch=None, n=None):
+        noise = generate_noise(n, self.image_size)
+        S = generate_style(self.gen_layers, n, self.latent_dim)
+        W = self.Snet(S)
+        return self.G(W, noise)
+    
+    def training_step(self, batch, batch_idx):
+        real_imgs, real_imgs_dics = batch
+        B = real_imgs.shape[0]
+        Bd = real_imgs_dics.shape[0]
+
+        Gopt, Dopt = self.optimizers()
+
+        # Training the discriminator
+        if self.current_epoch % self.disc_training_interval == 0:
+            self.enable_discriminator_training()
+            self.disable_generator_training()
+
+            Dopt.zero_grad()
+            
+            # Generate images
+            fake_imgs = self.generate_images(n=Bd)
+
+            # Discriminator loss
+            p_fake = F.sigmoid(self.D(fake_imgs))
+            p_real = F.sigmoid(self.D(real_imgs_dics))
+
+            disc_loss = F.binary_cross_entropy(p_fake, torch.zeros_like(p_fake), reduction='mean') + \
+                        F.binary_cross_entropy(p_real, torch.ones_like(p_real), reduction='mean')
+            self.log('disc_loss', disc_loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+
+            self.manual_backward(disc_loss)
+            Dopt.step()
+        
+        # Training the discriminator
+        self.enable_generator_training()
+        self.disable_discriminator_training()
+        Gopt.zero_grad()
+
+        # Generate images
+        fake_imgs = self.generate_images(n=B)
+
+        # Generator loss
+        p_fake = F.sigmoid(self.D(fake_imgs))
+        gen_loss = F.binary_cross_entropy(p_fake, torch.ones_like(p_fake), reduction='mean')
+        self.log('gen_loss', gen_loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        self.manual_backward(gen_loss)
+        Gopt.step()
+            
+        return super().training_step(batch, batch_idx)

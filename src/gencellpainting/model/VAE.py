@@ -1,9 +1,9 @@
-from conv_modules import Conv2dStack,Conv2dTransposeStack
+from .conv_modules import Conv2dStack,Conv2dTransposeStack
 import torch
 import torch.nn as nn
 from torch.distributions.multivariate_normal import MultivariateNormal
 import lightning as L
-from abc_model import UnsupervisedImageGenerator
+from .abc_model import UnsupervisedImageGenerator
 
 class Encoder(nn.Module):
     def __init__(self, in_channels, latent_dim):
