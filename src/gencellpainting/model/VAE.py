@@ -94,13 +94,15 @@ class Decoder(nn.Module):
 
 
 class VAE(UnsupervisedImageGenerator):
-    def __init__(self, latent_dim, in_channels, out_channels, alpha=0.1, epoch_monitoring_interval=1, n_images_monitoring=6):
+    def __init__(self, latent_dim, in_channels, out_channels, alpha=0.1,learning_rate=1e-3, \
+                epoch_monitoring_interval=1,n_images_monitoring=6):
         super(VAE, self).__init__(epoch_monitoring_interval=epoch_monitoring_interval, n_images_monitoring=n_images_monitoring, add_original=True)
         #self.encoder = Encoder(in_channels=in_channels, latent_dim=latent_dim)
         self.encoder = EncoderWithPooling(in_channels=in_channels, latent_dim=latent_dim)
         self.decoder = Decoder(latent_dim=latent_dim, out_channels=out_channels)
         self.latent_dim = latent_dim
         self.alpha = alpha
+        self.learning_rate = learning_rate
 
     
     def training_step(self, batch, batch_idx):
@@ -140,7 +142,7 @@ class VAE(UnsupervisedImageGenerator):
         return loss
     
     def configure_optimizers(self):
-        optimizer = torch.optim.Adam(self.parameters(), lr=5e-4)
+        optimizer = torch.optim.Adam(self.parameters(), lr=self.learning_rate)
         return optimizer
     
     def generate_images(self, batch=None, n=None):

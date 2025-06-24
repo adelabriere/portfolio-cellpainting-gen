@@ -204,23 +204,27 @@ class SG2DiscriminatorBlock(nn.Module):
 # D
 
 class Generator(nn.Module):
-    def __init__(self, in_channel, image_size, latent_dim, network_capacity=16):
+    def __init__(self, in_channel, image_size, latent_dim, starting_image_size=4, network_capacity=16):
         super(Generator, self).__init__()
         self.in_channel = in_channel
         self.image_size = image_size
         self.latent_dim = latent_dim
         self.network_capacity = 16
 
+        # Starting image size
+        log_starting_image_size = int(math.log2(starting_image_size))
+
         # Num layers is based on initial image size
-        num_layers = int(math.log2(image_size) - 1)
+        num_layers = int(math.log2(image_size) - log_starting_image_size + 1)
         self.num_layers = num_layers
 
+
         # Learned initial tensor 
-        self.initial_tensor = nn.Parameter(torch.randn(1, in_channel, 4, 4))
+        self.initial_tensor = nn.Parameter(torch.randn(1, in_channel, starting_image_size, starting_image_size))
 
 
         # Input image size, output image size, number of channel 
-        conv_channel = [network_capacity*4*(2**i) for i in range(num_layers)]
+        conv_channel = [network_capacity*starting_image_size*(2**i) for i in range(num_layers)]
         conv_channel = conv_channel[::-1]
 
         input_image_channel = conv_channel[:-1]
@@ -276,6 +280,7 @@ class Discriminator(nn.Module):
 
 
         last_dim = conv_channel[-1] * 2 * 2
+        print("imaghe_size {} last_dim {} {}".format(image_size,last_dim,conv_channel))
 
         self.flatten = nn.Flatten()
         self.to_logit = nn.Linear(last_dim, 1)
@@ -284,6 +289,7 @@ class Discriminator(nn.Module):
         ilayer = 0
         for layer in self.layers:
             x = layer(x)
+            # print("layer {} shape {}".format(ilayer,x.shape))
             ilayer += 1
         x = self.flatten(x)
         x = self.to_logit(x)
@@ -378,15 +384,16 @@ class SG2SimpleGAN(UnsupervisedImageGenerator):
         Gopt, Dopt = self.optimizers()
 
         # Training the discriminator
-        if self.current_epoch % self.disc_training_interval == 0:
+        if batch_idx % self.disc_training_interval == 0:
             self.enable_discriminator_training()
             self.disable_generator_training()
-
+            # print("Disc training")
             Dopt.zero_grad()
             
             # Generate images
-            fake_imgs = self.generate_images(real_imgs,n=Bd)
-
+            fake_imgs = self.generate_images(real_imgs_dics,n=Bd)
+            # print("Fake imgs {}".format(fake_imgs.shape))
+            # print(" real_imgs_dics {}".format(real_imgs_dics.shape))
             # Discriminator loss
             p_fake = F.sigmoid(self.D(fake_imgs))
             p_real = F.sigmoid(self.D(real_imgs_dics))
@@ -405,10 +412,18 @@ class SG2SimpleGAN(UnsupervisedImageGenerator):
 
         # Generate images
         fake_imgs = self.generate_images(real_imgs,n=B)
+        # print("Gen trainig")
 
         # Generator loss
         p_fake = F.sigmoid(self.D(fake_imgs))
-        gen_loss = F.binary_cross_entropy(p_fake, torch.ones_like(p_fake), reduction='mean')
+
+        # Standar dloss
+        # gen_loss = F.binary_cross_entropy(p_fake, torch.ones_like(p_fake), reduction='mean')
+
+        # Non saturating loss function
+        gen_loss = -torch.log(p_fake)
+        gen_loss = gen_loss.mean()
+
         self.log('gen_loss', gen_loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
         self.manual_backward(gen_loss)
         Gopt.step()

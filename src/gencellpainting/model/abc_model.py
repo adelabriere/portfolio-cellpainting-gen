@@ -1,6 +1,8 @@
 from gencellpainting.model.conv_modules import Conv2dStack,Conv2dTransposeStack
+from gencellpainting.evaluation.clip_fih import FrechetCLIPDistance
 import torch
 import lightning as L
+
 
 from gencellpainting.plotting import multi_channel_tensor_to_flat_matrix
 
@@ -15,11 +17,10 @@ class UnsupervisedImageGenerator(L.LightningModule):
         self.last_monitored_epoch = -1
         self.n_images_monitoring = n_images_monitoring
         self.add_original = add_original
-    
+        self.clip_frechet_distance = FrechetCLIPDistance()
 
     def training_step(self, batch, batch_idx):
         self.monitor_training(batch)
-
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=1e-3)
@@ -28,15 +29,10 @@ class UnsupervisedImageGenerator(L.LightningModule):
     def monitor_training(self, batch):
         if self.current_epoch % self.epoch_monitoring_interval == 0 and \
             self.last_monitored_epoch != self.current_epoch:
-
             self.last_monitored_epoch = self.current_epoch
-
             Nchannel = batch.size(1)
-
             min_dim = min(self.n_images_monitoring,batch.size(0))
-
             sub_batch = batch[:min_dim,:,:,:]
-
             images = self.generate_images(batch = sub_batch, n=min_dim)
 
             # print("Flag value {}".format(self.add_original))
@@ -49,6 +45,20 @@ class UnsupervisedImageGenerator(L.LightningModule):
             for i,img in enumerate(split_images):
                 name_image = "img{}".format(i)
                 self.logger.experiment.add_image(name_image,multi_channel_tensor_to_flat_matrix(img.squeeze(),nrow=Nchannel),self.current_epoch)
+            
+            self.compute_metrics(batch)
+
+    def compute_metrics(self,batch):
+        nimages = batch.size(0)
+        fake_images = self.generate_images(batch = batch, n=nimages)
+        self.clip_frechet_distance.update(batch,is_real=True)
+        self.clip_frechet_distance.update(fake_images,is_real=False)
+        score = self.clip_frechet_distance.compute()
+        self.log("FrechetCLIPDistance",float(score))
+        self.clip_frechet_distance.reset()
+
+
+
 
 
     def generate_images(self, batch=None, n=6):
