@@ -6,10 +6,17 @@ import lightning as L
 from .abc_model import UnsupervisedImageGenerator
 
 class Encoder(nn.Module):
-    def __init__(self, in_channels, latent_dim):
+    def __init__(self, in_channels, latent_dim, network_capacity=32):
         super(Encoder, self).__init__()
+
+        self.in_channels = in_channels
+        self.latent_dim = latent_dim
+        self.network_capacity = network_capacity
+
+        networks_channels = [network_capacity*2**i for i in range(3)]
+
         self.model = nn.Sequential(
-            Conv2dStack(in_channels, out_channels=32, kernel_size=4, stride=2, padding=1), # (B, 32, 64, 64)
+            Conv2dStack(in_channels, out_channels=networks_channels[0], kernel_size=4, stride=2, padding=1), # (B, 32, 64, 64)
             Conv2dStack(32, out_channels=64, kernel_size=4, stride=2, padding=1), # (B, 64, 32, 32)
             Conv2dStack(64, out_channels=128, kernel_size=3, stride=2, padding=1), # (B, 128, 16, 16)
             nn.Flatten()
@@ -31,22 +38,30 @@ class Encoder(nn.Module):
     
 
 class EncoderWithPooling(nn.Module):
-    def __init__(self, in_channels, latent_dim):
+    def __init__(self, in_channels, latent_dim, network_capacity=32,):
+
+        self.network_capacity = network_capacity
+
+        networks_channels = [network_capacity*2**i for i in range(4)]
+
         super(EncoderWithPooling, self).__init__()
         self.model = nn.Sequential(
-            Conv2dStack(in_channels, out_channels=16, kernel_size=4, stride=1, padding="same"),
+            Conv2dStack(in_channels, out_channels=networks_channels[0], kernel_size=4, stride=1, padding="same"),
             nn.MaxPool2d(kernel_size=2), # (B, 16, 64, 64)
-            Conv2dStack(16, out_channels=32, kernel_size=4, stride=1, padding="same"),
+            Conv2dStack(networks_channels[0], out_channels=networks_channels[1], \
+                        kernel_size=4, stride=1, padding="same"),
             nn.MaxPool2d(kernel_size=2), # (B, 32, 32, 32)
-            Conv2dStack(32, out_channels=64, kernel_size=3, stride=1, padding="same"),
+            Conv2dStack(networks_channels[1], out_channels=networks_channels[2], \
+                        kernel_size=3, stride=1, padding="same"),
             nn.MaxPool2d(kernel_size=2), # (B, 64, 16, 16)
-            Conv2dStack(64, out_channels=64, kernel_size=3, stride=1, padding="same"),
+            Conv2dStack(networks_channels[2], out_channels=networks_channels[3], \
+                        kernel_size=3, stride=1, padding="same"),
             nn.MaxPool2d(kernel_size=2), # (B, 64, 8, 8)
             nn.Flatten()
         )
 
         self.softplus = nn.Softplus()
-        self.latent_layer = nn.Linear(64 * 8 * 8, latent_dim * 2)
+        self.latent_layer = nn.Linear(networks_channels[3] * 8 * 8, latent_dim * 2)
 
 
     def forward(self, x, eps = 1e-8):
@@ -60,15 +75,25 @@ class EncoderWithPooling(nn.Module):
 
 
 class Decoder(nn.Module):
-    def __init__(self, latent_dim, out_channels):
+    def __init__(self, latent_dim, out_channels, network_capacity = 32):
         super(Decoder, self).__init__()
-        self.fc = nn.Linear(latent_dim, 512 * 4 * 4)
+        self.network_capacity = network_capacity
+
+        networks_channels = [network_capacity*2**i for i in range(5)]
+        self.networks_channels = networks_channels[::-1]
+        print(self.networks_channels)
+        self.fc = nn.Linear(latent_dim, self.networks_channels[0] * 4 * 4)
         self.model = nn.Sequential(
-            Conv2dTransposeStack(512, out_channels=256, kernel_size=2, stride=2, padding=0, output_padding=0, activation="leaky_relu"),#activation="relu", activation_args={"inplace": True}), # Output: (B, 256, 8, 8)
-            Conv2dTransposeStack(256, out_channels=128, kernel_size=4, stride=2, padding=1, output_padding=0, activation="leaky_relu"),#, activation="relu", activation_args={"inplace": True}), # Output: (B, 128, 16, 16)
-            Conv2dTransposeStack(128, out_channels=64, kernel_size=4, stride=2, padding=1, output_padding=0, activation="leaky_relu"),#, activation="relu", activation_args={"inplace": True}), # Output: (B, 64, 32, 32)
-            Conv2dTransposeStack(64, out_channels=32, kernel_size=4, stride=2, padding=1, output_padding=0, activation="leaky_relu"),#, activation="relu", activation_args={"inplace": True}), # Output: (B, 32, 64, 64)
-            nn.ConvTranspose2d(32, out_channels=out_channels, kernel_size=4, stride=2, padding=1), # Output: (B, out_channels, 128, 128)
+            Conv2dTransposeStack(self.networks_channels[0], out_channels=self.networks_channels[1],\
+                                 kernel_size=2, stride=2, padding=0, output_padding=0, activation="leaky_relu"),#activation="relu", activation_args={"inplace": True}), # Output: (B, 256, 8, 8)
+            Conv2dTransposeStack(self.networks_channels[1], out_channels=self.networks_channels[2],\
+                                 kernel_size=4, stride=2, padding=1, output_padding=0, activation="leaky_relu"),#, activation="relu", activation_args={"inplace": True}), # Output: (B, 128, 16, 16)
+            Conv2dTransposeStack(self.networks_channels[2], out_channels=self.networks_channels[3],\
+                                 kernel_size=4, stride=2, padding=1, output_padding=0, activation="leaky_relu"),#, activation="relu", activation_args={"inplace": True}), # Output: (B, 64, 32, 32)
+            Conv2dTransposeStack(self.networks_channels[3], out_channels=self.networks_channels[4],\
+                                 kernel_size=4, stride=2, padding=1, output_padding=0, activation="leaky_relu"),#, activation="relu", activation_args={"inplace": True}), # Output: (B, 32, 64, 64)
+            nn.ConvTranspose2d(self.networks_channels[4], out_channels=out_channels, kernel_size=4,\
+                                stride=2, padding=1), # Output: (B, out_channels, 128, 128)
             # We add convolution layer
             nn.Conv2d(out_channels, out_channels=out_channels, stride=1, kernel_size=1,padding="same"),
             nn.Sigmoid()
@@ -76,7 +101,7 @@ class Decoder(nn.Module):
     
     def forward(self, z):
         x = self.fc(z)
-        x = x.view(-1, 512, 4, 4)
+        x = x.view(-1, self.networks_channels[0], 4, 4)
         x = self.model(x)
         return x
 
@@ -94,16 +119,18 @@ class Decoder(nn.Module):
 
 
 class VAE(UnsupervisedImageGenerator):
-    def __init__(self, latent_dim, in_channels, out_channels, alpha=0.1,learning_rate=1e-3, \
+    def __init__(self, latent_dim, in_channels, out_channels, alpha=0.1,network_capacity=32,learning_rate=1e-3, \
                 epoch_monitoring_interval=1,n_images_monitoring=6):
         super(VAE, self).__init__(epoch_monitoring_interval=epoch_monitoring_interval, n_images_monitoring=n_images_monitoring, add_original=True)
         #self.encoder = Encoder(in_channels=in_channels, latent_dim=latent_dim)
-        self.encoder = EncoderWithPooling(in_channels=in_channels, latent_dim=latent_dim)
-        self.decoder = Decoder(latent_dim=latent_dim, out_channels=out_channels)
+        self.encoder = EncoderWithPooling(in_channels=in_channels, latent_dim=latent_dim,\
+                                           network_capacity=network_capacity)
+        self.decoder = Decoder(latent_dim=latent_dim, out_channels=out_channels,\
+                                network_capacity=network_capacity)
         self.latent_dim = latent_dim
         self.alpha = alpha
         self.learning_rate = learning_rate
-
+        self.network_capacity = network_capacity
     
     def training_step(self, batch, batch_idx):
         X = batch
@@ -137,12 +164,15 @@ class VAE(UnsupervisedImageGenerator):
         dist = self.encoder(X)
         z = dist.rsample()
         X_hat = self.decoder(z)
+        # print("\nX {} X_shape {} z {}".format(X.shape,X_hat.shape,z.shape))
         loss = nn.functional.mse_loss(X_hat, X, reduction='mean')
         self.log_dict({'val_loss': loss}, prog_bar=True, logger=True, on_epoch=True)
         return loss
     
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=self.learning_rate)
+        scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.99)
+        return [optimizer], [scheduler]
         return optimizer
     
     def generate_images(self, batch=None, n=None):

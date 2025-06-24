@@ -2,6 +2,7 @@ from gencellpainting.model.conv_modules import Conv2dStack,Conv2dTransposeStack
 from gencellpainting.evaluation.clip_fih import FrechetCLIPDistance
 import torch
 import lightning as L
+from torchmetrics import Recall,Precision
 
 
 from gencellpainting.plotting import multi_channel_tensor_to_flat_matrix
@@ -23,8 +24,7 @@ class UnsupervisedImageGenerator(L.LightningModule):
         self.monitor_training(batch)
 
     def configure_optimizers(self):
-        optimizer = torch.optim.Adam(self.parameters(), lr=1e-3)
-        return optimizer
+        raise NotImplementedError("Method need to be implemented")
 
     def monitor_training(self, batch):
         if self.current_epoch % self.epoch_monitoring_interval == 0 and \
@@ -39,12 +39,19 @@ class UnsupervisedImageGenerator(L.LightningModule):
             if self.add_original: # we add the original
                 # print("Batch shape {} gene images shape {}".format(batch.size(),images.size()))
                 images = torch.cat([images,sub_batch],dim=1)
-            split_images = torch.chunk(images,images.size(0),dim=0)
 
-            # Saving the images
-            for i,img in enumerate(split_images):
-                name_image = "img{}".format(i)
-                self.logger.experiment.add_image(name_image,multi_channel_tensor_to_flat_matrix(img.squeeze(),nrow=Nchannel),self.current_epoch)
+            B, C, H, W = images.size()
+
+            images = images.view(B * C, H, W)
+
+            self.logger.experiment.add_image("imgs",multi_channel_tensor_to_flat_matrix(images,nrow=Nchannel),self.current_epoch)
+            
+            # split_images = torch.chunk(images,images.size(0),dim=0)
+
+            # # Saving the images
+            # for i,img in enumerate(split_images):
+            #     name_image = "img{}".format(i)
+            #     self.logger.experiment.add_image(name_image,multi_channel_tensor_to_flat_matrix(img.squeeze(),nrow=Nchannel),self.current_epoch)
             
             self.compute_metrics(batch)
 
@@ -57,9 +64,18 @@ class UnsupervisedImageGenerator(L.LightningModule):
         self.log("FrechetCLIPDistance",float(score))
         self.clip_frechet_distance.reset()
 
-
-
-
-
     def generate_images(self, batch=None, n=6):
         raise NotImplementedError("Method need to be implemented")
+    
+
+class AbstractGAN(UnsupervisedImageGenerator):
+    """Standard Unsupervised image Generator with the addition of discriminator specfic metrics"""
+    def __init__(self, epoch_monitoring_interval=None, n_images_monitoring=6, add_original=True):
+        super().__init__(epoch_monitoring_interval, n_images_monitoring, add_original)
+        self.precision = Precision(task="binary")
+        self.recall = Recall(task="binary")
+    
+    def training_step(self, batch, preds, targets):
+        self.monitor_training(batch)
+        self.precision(preds,targets)
+        self.recall(preds,targets)
