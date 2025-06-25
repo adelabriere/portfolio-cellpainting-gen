@@ -1,10 +1,10 @@
-from conv_modules import *
+from .conv_modules import *
 import torch.nn as nn
 import torch.nn.functional as F
 import torch
-from GAN import GeneratorV2, GeneratorV2ShallowFC
+from .GAN import GeneratorVAEDecoder
 import lightning as L
-from .abc_model import UnsupervisedImageGenerator
+from .abc_model import UnsupervisedImageGenerator, AbstractGAN
 
    
 
@@ -22,15 +22,14 @@ class WGANCritic(nn.Module):
 
     def forward(self, x):
         return self.model(x)
-    
 
-class WGAN(UnsupervisedImageGenerator):
+class WGAN(AbstractGAN):
     """Own implemntation of https://arxiv.org/pdf/1701.07875 the parameters are taken from the paper"""
-    def __init__(self, in_channels, out_channels, noise_dim, n_critic = 5, clip_value = 0.01,\
-                 learning_rate = 1e-5,epoch_monitoring_interval=1, n_images_monitoring=6):
+    def __init__(self, in_channels, out_channels, noise_dim, n_critic = 5, network_capacity=32,\
+                 clip_value = 0.01,learning_rate = 1e-5,epoch_monitoring_interval=1, n_images_monitoring=6):
         super(WGAN, self).__init__(epoch_monitoring_interval=epoch_monitoring_interval, n_images_monitoring=n_images_monitoring, add_original=True)
         # self.generator = GeneratorV2(out_channels,latent_dim=noise_dim)
-        self.generator  = GeneratorV2ShallowFC(out_channels,noise_dim)
+        self.generator  = GeneratorVAEDecoder(noise_dim, out_channels, network_capacity=network_capacity)
         self.discriminator = WGANCritic(in_channels)
 
         self.noise_dim = noise_dim
@@ -73,8 +72,6 @@ class WGAN(UnsupervisedImageGenerator):
         for p in model.parameters():
             p.data.clamp_(-value, value)
 
-    
-    
     def training_step(self, batch, batch_idx):
         real_images, critic_images = batch
 
@@ -85,6 +82,7 @@ class WGAN(UnsupervisedImageGenerator):
         # Training discriminator
         self.disable_generator_training()
         self.enable_discriminator_training()
+
 
         for ic in range(self.n_critic):
             opt_disc.zero_grad()
@@ -129,8 +127,9 @@ class WGAN(UnsupervisedImageGenerator):
 
         # We can log the metrics
         self.log_dict({"G_loss": G_loss, "D_loss": D_loss_disc, "d_R": d_R_disc, "d_G": d_G_disc},prog_bar=True)
-
-        super().training_step(batch[0], batch_idx)
+    
+        # Label for Precision and Recall
+        super().training_step(batch[0], batch_idx, None, None)
 
     def configure_optimizers(self):
         opt_disc = torch.optim.RMSprop(self.discriminator.parameters(), lr=self.learning_rate)

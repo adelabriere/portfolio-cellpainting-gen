@@ -47,16 +47,16 @@ class EncoderWithPooling(nn.Module):
         super(EncoderWithPooling, self).__init__()
         self.model = nn.Sequential(
             Conv2dStack(in_channels, out_channels=networks_channels[0], kernel_size=4, stride=1, padding="same"),
-            nn.MaxPool2d(kernel_size=2), # (B, 16, 64, 64)
+            nn.MaxPool2d(kernel_size=2, stride = 2), # (B, 16, 64, 64)
             Conv2dStack(networks_channels[0], out_channels=networks_channels[1], \
                         kernel_size=4, stride=1, padding="same"),
-            nn.MaxPool2d(kernel_size=2), # (B, 32, 32, 32)
+            nn.MaxPool2d(kernel_size=2, stride = 2), # (B, 32, 32, 32)
             Conv2dStack(networks_channels[1], out_channels=networks_channels[2], \
                         kernel_size=3, stride=1, padding="same"),
-            nn.MaxPool2d(kernel_size=2), # (B, 64, 16, 16)
+            nn.MaxPool2d(kernel_size=2, stride = 2), # (B, 64, 16, 16)
             Conv2dStack(networks_channels[2], out_channels=networks_channels[3], \
                         kernel_size=3, stride=1, padding="same"),
-            nn.MaxPool2d(kernel_size=2), # (B, 64, 8, 8)
+            nn.MaxPool2d(kernel_size=2, stride = 2), # (B, 64, 8, 8)
             nn.Flatten()
         )
 
@@ -77,31 +77,36 @@ class EncoderWithPooling(nn.Module):
 class Decoder(nn.Module):
     def __init__(self, latent_dim, out_channels, network_capacity = 32):
         super(Decoder, self).__init__()
+        self.latent_dim = latent_dim
+        self.out_channels = out_channels
         self.network_capacity = network_capacity
+
 
         networks_channels = [network_capacity*2**i for i in range(5)]
         self.networks_channels = networks_channels[::-1]
-        print(self.networks_channels)
-        self.fc = nn.Linear(latent_dim, self.networks_channels[0] * 4 * 4)
+
+        # self.fc = nn.Linear(latent_dim, self.networks_channels[0] * 4 * 4)
         self.model = nn.Sequential(
+            Conv2dTransposeStack(self.latent_dim, out_channels=self.networks_channels[0],\
+                                 kernel_size=4, stride=1, padding=0, output_padding=0, activation="leaky_relu", bias=False),
             Conv2dTransposeStack(self.networks_channels[0], out_channels=self.networks_channels[1],\
-                                 kernel_size=2, stride=2, padding=0, output_padding=0, activation="leaky_relu"),#activation="relu", activation_args={"inplace": True}), # Output: (B, 256, 8, 8)
+                                 kernel_size=2, stride=2, padding=0, output_padding=0, activation="leaky_relu", bias=False),#activation="relu", activation_args={"inplace": True}), # Output: (B, 256, 8, 8)
             Conv2dTransposeStack(self.networks_channels[1], out_channels=self.networks_channels[2],\
-                                 kernel_size=4, stride=2, padding=1, output_padding=0, activation="leaky_relu"),#, activation="relu", activation_args={"inplace": True}), # Output: (B, 128, 16, 16)
+                                 kernel_size=4, stride=2, padding=1, output_padding=0, activation="leaky_relu", bias=False),#, activation="relu", activation_args={"inplace": True}), # Output: (B, 128, 16, 16)
             Conv2dTransposeStack(self.networks_channels[2], out_channels=self.networks_channels[3],\
-                                 kernel_size=4, stride=2, padding=1, output_padding=0, activation="leaky_relu"),#, activation="relu", activation_args={"inplace": True}), # Output: (B, 64, 32, 32)
+                                 kernel_size=4, stride=2, padding=1, output_padding=0, activation="leaky_relu", bias=False),#, activation="relu", activation_args={"inplace": True}), # Output: (B, 64, 32, 32)
             Conv2dTransposeStack(self.networks_channels[3], out_channels=self.networks_channels[4],\
-                                 kernel_size=4, stride=2, padding=1, output_padding=0, activation="leaky_relu"),#, activation="relu", activation_args={"inplace": True}), # Output: (B, 32, 64, 64)
+                                 kernel_size=4, stride=2, padding=1, output_padding=0, activation="leaky_relu", bias=False),#, activation="relu", activation_args={"inplace": True}), # Output: (B, 32, 64, 64)
             nn.ConvTranspose2d(self.networks_channels[4], out_channels=out_channels, kernel_size=4,\
-                                stride=2, padding=1), # Output: (B, out_channels, 128, 128)
+                                stride=2, padding=1, bias=False), # Output: (B, out_channels, 128, 128)
             # We add convolution layer
             nn.Conv2d(out_channels, out_channels=out_channels, stride=1, kernel_size=1,padding="same"),
             nn.Sigmoid()
         )
     
     def forward(self, z):
-        x = self.fc(z)
-        x = x.view(-1, self.networks_channels[0], 4, 4)
+        # x = self.fc(z)
+        x = z.view(-1, self.latent_dim, 1, 1)
         x = self.model(x)
         return x
 

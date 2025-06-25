@@ -75,7 +75,15 @@ class AbstractGAN(UnsupervisedImageGenerator):
         self.precision = Precision(task="binary")
         self.recall = Recall(task="binary")
     
-    def training_step(self, batch, preds, targets):
+    def training_step(self, batch, batch_idx, preds=None, targets=None):
+        if preds is not None:
+            self.precision.update(preds,targets)
+            prec_score = self.precision.compute()
+            self.log("Precision",float(prec_score))
+            self.precision.reset()
+            self.recall.update(preds,targets)
+            rec_score = self.recall.compute()
+            self.log("Recall",float(rec_score))
+            self.precision.reset()
         self.monitor_training(batch)
-        self.precision(preds,targets)
-        self.recall(preds,targets)
+

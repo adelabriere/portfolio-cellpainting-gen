@@ -31,10 +31,10 @@ class Conv2dStack(nn.Module):
 
 
 class Conv2dTransposeStack(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size, padding, stride=1, output_padding=0, activation="leaky_relu", activation_args=None):
+    def __init__(self, in_channels, out_channels, kernel_size, padding, stride=1, output_padding=0, activation="leaky_relu", activation_args=None, bias=False):
         super(Conv2dTransposeStack, self).__init__()
         self.conv = nn.ConvTranspose2d(in_channels, out_channels, kernel_size=kernel_size, padding=padding,
-                                       stride=stride, output_padding=output_padding)
+                                       stride=stride, output_padding=output_padding, bias = bias)
         self.bn = nn.BatchNorm2d(out_channels)
         if activation_args is None:
             # FOr compatibility purpose

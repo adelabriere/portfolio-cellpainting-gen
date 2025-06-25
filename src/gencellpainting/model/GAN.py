@@ -4,76 +4,76 @@ import torch.nn.functional as F
 import torch
 from .VAE import Decoder, Encoder
 import lightning as L
-from .abc_model import UnsupervisedImageGenerator
+from .abc_model import AbstractGAN
 
-
-
-class Generator(nn.Module):
-    def __init__(self,out_channels,hidden_dim):
-        super(Generator, self).__init__()
-        self.decoder = Decoder(latent_dim=hidden_dim, out_channels=out_channels)
-
-    def forward(self, z):
-        return self.decoder(z)
     
 
-class GeneratorV2(nn.Module):
-    def __init__(self, out_channels, latent_dim):
-        super(GeneratorV2, self).__init__()
-        # We remove the uflly connected layer and try to use a convolutionnal layer of smaller size
+# class GeneratorV2ShallowFC(nn.Module):
+#     """For testing purpose model version with shallower version"""
+#     def __init__(self, out_channels, latent_dim):
+#         super(GeneratorV2ShallowFC, self).__init__()
+#         # We remove the uflly connected layer and try to use a convolutionnal layer of smaller size
+#         self.fc = nn.Linear(latent_dim, 256 * 8 * 8)
 
-        # Input after reshaping (B, latent_dim (noise), 1 , 1)
+#         # Input after reshaping (B, 256, 8 , 8)
+#         self.model = nn.Sequential(
+#             Conv2dTransposeStack(256, out_channels=128, kernel_size=4, stride=2, padding=1, output_padding=0, activation="leaky_relu", activation_args={"inplace": True}),
+#             # Output: (B, 128, 16, 16)
+#             Conv2dTransposeStack(128, out_channels=64, kernel_size=4, stride=2, padding=1, output_padding=0, activation="leaky_relu", activation_args={"inplace": True}),
+#             # Output: (B, 64, 32, 32)
+#             Conv2dTransposeStack(64, out_channels=32, kernel_size=4, stride=2, padding=1, output_padding=0, activation="leaky_relu", activation_args={"inplace": True}),
+#             # Output: (B, 32, 64, 64)
+#             nn.ConvTranspose2d(32, out_channels=out_channels, kernel_size=2, stride=2, padding=0, output_padding=0), # Output: (B, out_channels, 128, 128)
+#             nn.Conv2d(out_channels, out_channels=out_channels, stride=1, kernel_size=1,padding="same"),
+#             nn.Sigmoid()
+#         )
+
+#         self.latent_dim = latent_dim
+    
+#     def forward(self, z):
+#         x = self.fc(z)
+#         x = x.view(x.size(0), 256, 8, 8)
+#         x = self.model(x)
+#         return x
+    
+
+class GeneratorVAEDecoder(nn.Module):
+    def __init__(self, latent_dim, out_channels, network_capacity = 32):
+        super(GeneratorVAEDecoder, self).__init__()
+        self.latent_dim = latent_dim
+        self.out_channels = out_channels
+        self.network_capacity = network_capacity
+
+
+        networks_channels = [network_capacity*2**i for i in range(5)]
+        self.networks_channels = networks_channels[::-1]
+        # self.fc = nn.Linear(latent_dim, self.networks_channels[0] * 4 * 4)
         self.model = nn.Sequential(
-            # Input after reshaping (B, latent_dim (noise), 1 , 1)
-            Conv2dTransposeStack(latent_dim, out_channels=512, kernel_size=4, stride=1, padding=0, output_padding=0, activation="relu", activation_args={"inplace": True}),
-            # Output: (B, 512, 4, 4)
-            Conv2dTransposeStack(512, out_channels=256, kernel_size=4, stride=2, padding=1, output_padding=0, activation="relu", activation_args={"inplace": True}),
-            # Output: (B, 256, 8, 8)
-            Conv2dTransposeStack(256, out_channels=128, kernel_size=4, stride=2, padding=1, output_padding=0, activation="relu", activation_args={"inplace": True}),
-            # Output: (B, 128, 16, 16)
-            Conv2dTransposeStack(128, out_channels=64, kernel_size=4, stride=2, padding=1, output_padding=0, activation="relu", activation_args={"inplace": True}),
-            # Output: (B, 64, 32, 32)
-            Conv2dTransposeStack(64, out_channels=32, kernel_size=4, stride=2, padding=1, output_padding=0, activation="relu", activation_args={"inplace": True}),
-            # Output: (B, 32, 64, 64)
-            nn.ConvTranspose2d(32, out_channels=out_channels, kernel_size=4, stride=2, padding=1), # Output: (B, out_channels, 128, 128)
+            Conv2dTransposeStack(self.latent_dim, out_channels=self.networks_channels[0],\
+                                 kernel_size=4, stride=1, padding=0, output_padding=0, activation="leaky_relu", bias=False),
+            Conv2dTransposeStack(self.networks_channels[0], out_channels=self.networks_channels[1],\
+                                 kernel_size=2, stride=2, padding=0, output_padding=0, activation="leaky_relu", bias=False),#activation="relu", activation_args={"inplace": True}), # Output: (B, 256, 8, 8)
+            Conv2dTransposeStack(self.networks_channels[1], out_channels=self.networks_channels[2],\
+                                 kernel_size=4, stride=2, padding=1, output_padding=0, activation="leaky_relu", bias=False),#, activation="relu", activation_args={"inplace": True}), # Output: (B, 128, 16, 16)
+            Conv2dTransposeStack(self.networks_channels[2], out_channels=self.networks_channels[3],\
+                                 kernel_size=4, stride=2, padding=1, output_padding=0, activation="leaky_relu", bias=False),#, activation="relu", activation_args={"inplace": True}), # Output: (B, 64, 32, 32)
+            Conv2dTransposeStack(self.networks_channels[3], out_channels=self.networks_channels[4],\
+                                 kernel_size=4, stride=2, padding=1, output_padding=0, activation="leaky_relu", bias=False),#, activation="relu", activation_args={"inplace": True}), # Output: (B, 32, 64, 64)
+            nn.ConvTranspose2d(self.networks_channels[4], out_channels=out_channels, kernel_size=4,\
+                                stride=2, padding=1), # Output: (B, out_channels, 128, 128)
+            # We add convolution layer
+            nn.Conv2d(out_channels, out_channels=out_channels, stride=1, kernel_size=1,padding="same"),
             nn.Sigmoid()
         )
-
-        self.latent_dim = latent_dim
     
     def forward(self, z):
-        # We reshape the input z
-        x = z.view(z.size(0), self.latent_dim , 1, 1)
+        # x = self.fc(z)
+        x = z.view(-1, self.latent_dim, 1, 1)
         x = self.model(x)
         return x
-    
 
-class GeneratorV2ShallowFC(nn.Module):
-    """For testing purpose model version with shallower version"""
-    def __init__(self, out_channels, latent_dim):
-        super(GeneratorV2ShallowFC, self).__init__()
-        # We remove the uflly connected layer and try to use a convolutionnal layer of smaller size
-        self.fc = nn.Linear(latent_dim, 256 * 8 * 8)
 
-        # Input after reshaping (B, latent_dim (noise), 1 , 1)
-        self.model = nn.Sequential(
-            Conv2dTransposeStack(256, out_channels=128, kernel_size=4, stride=2, padding=1, output_padding=0, activation="relu", activation_args={"inplace": True}),
-            # Output: (B, 128, 16, 16)
-            Conv2dTransposeStack(128, out_channels=64, kernel_size=4, stride=2, padding=1, output_padding=0, activation="relu", activation_args={"inplace": True}),
-            # Output: (B, 64, 32, 32)
-            Conv2dTransposeStack(64, out_channels=32, kernel_size=4, stride=2, padding=1, output_padding=0, activation="relu", activation_args={"inplace": True}),
-            # Output: (B, 32, 64, 64)
-            nn.ConvTranspose2d(32, out_channels=out_channels, kernel_size=4, stride=2, padding=1), # Output: (B, out_channels, 128, 128)
-            nn.Sigmoid()
-        )
 
-        self.latent_dim = latent_dim
-    
-    def forward(self, z):
-        x = self.fc(z)
-        x = x.view(x.size(0), 256, 8, 8)
-        x = self.model(x)
-        return x
     
 class GeneratorUpsampling(nn.Module):
     def __init__(self,  out_channels, latent_dim):
@@ -110,11 +110,16 @@ class Discriminator(nn.Module):
         super(Discriminator, self).__init__()
         # Input size (B, in_channels, 128, 128)
         self.model = nn.Sequential(
-            Conv2dStack(in_channels, out_channels=32, kernel_size=4, stride=2, padding=1), # (B, 32, 64, 64)
-            Conv2dStack(32, out_channels=64, kernel_size=4, stride=2, padding=1), # (B, 64, 32, 32)
-            Conv2dStack(64, out_channels=128, kernel_size=3, stride=2, padding=1), # (B, 128, 16, 16)
+            Conv2dStack(in_channels, out_channels=32, kernel_size=4, stride=1, padding="same"), # (B, 32, 128, 128)
+            nn.MaxPool2d(kernel_size=2, stride=2), # (B, 32, 64, 64)
+            Conv2dStack(32, out_channels=64, kernel_size=4, stride=1, padding="same"), # (B, 32, 64, 64)
+            nn.MaxPool2d(kernel_size=2, stride=2), # (B, 64, 32, 32)
+            Conv2dStack(64, out_channels=128, kernel_size=3, stride=1, padding="same"), # (B, 128, 32, 32)
+            nn.MaxPool2d(kernel_size=2, stride=2), # (B, 128, 16, 16)
+            Conv2dStack(128, out_channels=256, kernel_size=2, stride=1, padding="same"), # (B, 256, 16, 16)
+            nn.MaxPool2d(kernel_size=2, stride=2), # (B, 256, 8, 8)
             nn.Flatten(),
-            nn.Linear(128 * 16 * 16, 1)
+            nn.Linear(256 * 8 * 8, 1)
         )
         self.sigmoid = nn.Sigmoid()
 
@@ -123,76 +128,56 @@ class Discriminator(nn.Module):
         return self.sigmoid(x)
     
 
-# class VAE(UnsupervisedImageGenerator):
-#     def __init__(self, latent_dim, in_channels, out_channels, alpha=0.1, epoch_monitoring_interval=1, n_images_monitoring=6):
-#         super(VAE, self).__init__(epoch_monitoring_interval=epoch_monitoring_interval, n_images_monitoring=n_images_monitoring, add_original=True)
-#         #self.encoder = Encoder(in_channels=in_channels, latent_dim=latent_dim)
-#         self.encoder = EncoderWithPooling(in_channels=in_channels, latent_dim=latent_dim)
-#         self.decoder = Decoder(latent_dim=latent_dim, out_channels=out_channels)
-#         self.latent_dim = latent_dim
-#         self.alpha = alpha
+class EncoderWithPooling(nn.Module):
+    def __init__(self, in_channels, latent_dim, network_capacity=32,):
 
-    
-#     def training_step(self, batch, batch_idx):
-#         X = batch
-#         dist = self.encoder(X)
+        self.network_capacity = network_capacity
 
-#         # We sample the object
-#         z = dist.rsample()
-#         X_hat = self.decoder(z)
-#         loss = nn.functional.mse_loss(X_hat, X, reduction='mean')
+        networks_channels = [network_capacity*2**i for i in range(4)]
 
-#         # We add the Kullbach Lieber divergnce
-        
-#         # Defining the reference distribution
-#         std_normal = torch.distributions.MultivariateNormal(
-#             torch.zeros_like(z, device=z.device),
-#             scale_tril=torch.eye(z.shape[-1], device=z.device).unsqueeze(0).expand(z.shape[0], -1, -1),
-#         )
-#         loss_kl = torch.distributions.kl.kl_divergence(dist, std_normal).mean()
+        super(EncoderWithPooling, self).__init__()
+        self.model = nn.Sequential(
+            Conv2dStack(in_channels, out_channels=networks_channels[0], kernel_size=4, stride=1, padding="same"),
+            nn.MaxPool2d(kernel_size=2, stride=2), # (B, 16, 64, 64)
+            Conv2dStack(networks_channels[0], out_channels=networks_channels[1], \
+                        kernel_size=4, stride=1, padding="same"),
+            nn.MaxPool2d(kernel_size=2, stride=2), # (B, 32, 32, 32)
+            Conv2dStack(networks_channels[1], out_channels=networks_channels[2], \
+                        kernel_size=3, stride=1, padding="same"),
+            nn.MaxPool2d(kernel_size=2, stride=2), # (B, 64, 16, 16)
+            Conv2dStack(networks_channels[2], out_channels=networks_channels[3], \
+                        kernel_size=3, stride=1, padding="same"),
+            nn.MaxPool2d(kernel_size=2, stride=2), # (B, 64, 8, 8)
+            nn.Flatten()
+        )
 
-#         # Total loss
-#         total_loss = loss + self.alpha * loss_kl
+        self.softplus = nn.Softplus()
+        self.latent_layer = nn.Linear(networks_channels[3] * 8 * 8, latent_dim * 2)
 
-#         # Log metrics
-#         self.log_dict({'train_mse': loss, 'train_kl':loss_kl,'total_loss':total_loss}, prog_bar=True, logger=True, on_epoch=True)
-        
-#         super().training_step(batch, batch_idx)
-#         return loss
-    
-#     def validation_step(self, batch, batch_idx):
-#         X = batch
-#         dist = self.encoder(X)
-#         z = dist.rsample()
-#         X_hat = self.decoder(z)
-#         loss = nn.functional.mse_loss(X_hat, X, reduction='mean')
-#         self.log_dict({'val_loss': loss}, prog_bar=True, logger=True, on_epoch=True)
-#         return loss
-    
-#     def configure_optimizers(self):
-#         optimizer = torch.optim.Adam(self.parameters(), lr=5e-4)
-#         return optimizer
-    
-#     def generate_images(self, batch=None):
-#         X = batch
-#         dist = self.encoder(X)
-#         z = dist.rsample()
-#         X_hat = self.decoder(z)
-#         return X_hat
 
-class GAN(UnsupervisedImageGenerator):
-    def __init__(self, generator, discriminator, in_channels, out_channels, noise_dim, epoch_monitoring_interval=1, n_images_monitoring=6):
+    def forward(self, x, eps = 1e-8):
+        x = self.model(x)
+        l = self.latent_layer(x)
+        mu, logvar = torch.chunk(l, 2, dim=-1)
+        scale = self.softplus(logvar) + eps
+        scale_tril = torch.diag_embed(scale)
+        dist = MultivariateNormal(loc = mu, scale_tril=scale_tril)
+        return dist
+
+
+class GAN(AbstractGAN):
+    def __init__(self, generator, discriminator, in_channels, out_channels, noise_dim, epoch_monitoring_interval=1, n_images_monitoring=6, learning_rate=1e-4):
         super(GAN, self).__init__(epoch_monitoring_interval=epoch_monitoring_interval, n_images_monitoring=n_images_monitoring, add_original=True)
 
         # Using V2 for testing purposes
         if generator is None:
-            generator = GeneratorV2ShallowFC(out_channels,noise_dim)
+            generator = GeneratorVAEDecoder(noise_dim,out_channels)
         self.generator = generator
         # self.generator = GeneratorUpsampling(out_channels,noise_dim)
         if discriminator is None:
             discriminator = Discriminator(in_channels)
         self.discriminator = discriminator
-
+        self.learning_rate = learning_rate
         self.noise_dim = noise_dim
 
         # Classification loss
@@ -213,7 +198,6 @@ class GAN(UnsupervisedImageGenerator):
 
         opt_gen,opt_disc = self.optimizers()
 
-        opt_disc.zero_grad()
 
         # Writng the labels
         real_labels = torch.ones(real_images.size(0), 1, device=real_images.device)
@@ -225,21 +209,24 @@ class GAN(UnsupervisedImageGenerator):
         # Generating the fake images
         fake_images = self.generator(Z).to(real_images.device)
 
+        # print(" fake_images {} real_images {}".format(fake_images.shape,real_images.shape))
+
         # Training the discriminator
         real_loss = F.binary_cross_entropy(self.discriminator(real_images), real_labels)
         fake_loss = F.binary_cross_entropy(self.discriminator(fake_images.detach()), fake_labels)
         total_loss_disc = real_loss + fake_loss
 
+        opt_disc.zero_grad()
         self.manual_backward(total_loss_disc)
         opt_disc.step()
 
-        opt_gen.zero_grad()
+
 
         # Training the generator
         pred_fakes = self.discriminator(fake_images)
         gen_loss = F.binary_cross_entropy(pred_fakes, real_labels)
 
-
+        opt_gen.zero_grad()
         self.manual_backward(gen_loss)
         opt_gen.step()
 
@@ -251,12 +238,18 @@ class GAN(UnsupervisedImageGenerator):
             "loss_d_fake":fake_loss
         },prog_bar=True)
 
-        super().training_step(batch, batch_idx)
+        with torch.no_grad():
+            pred_real = self.discriminator(real_images)
+        
+        pred_full = torch.cat([pred_fakes,pred_real],dim=0)
+        targets_full = torch.cat([fake_labels,real_labels])
+        super().training_step(batch, batch_idx, pred_full, targets_full)
     
     def configure_optimizers(self):
-        opt_disc = torch.optim.Adam(self.discriminator.parameters(), lr=0.0002, betas=(0.5, 0.999))
-        opt_gen = torch.optim.Adam(self.generator.parameters(), lr=0.0002, betas=(0.5, 0.999))
+        opt_disc = torch.optim.Adam(self.discriminator.parameters(), lr=self.learning_rate)
+        opt_gen = torch.optim.Adam(self.generator.parameters(), lr=self.learning_rate)
         return opt_gen, opt_disc
+
 
 
 
