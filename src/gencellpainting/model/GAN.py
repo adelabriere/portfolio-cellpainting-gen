@@ -2,7 +2,7 @@ from .conv_modules import UpsampleConvStack, Conv2dTransposeStack, Conv2dStack
 import torch.nn as nn
 import torch.nn.functional as F
 import torch
-from .VAE import Decoder, Encoder
+from .VAE import Decoder
 import lightning as L
 from .abc_model import AbstractGAN
 
@@ -37,40 +37,40 @@ from .abc_model import AbstractGAN
 #         return x
     
 
-class GeneratorVAEDecoder(nn.Module):
-    def __init__(self, latent_dim, out_channels, network_capacity = 32):
-        super(GeneratorVAEDecoder, self).__init__()
-        self.latent_dim = latent_dim
-        self.out_channels = out_channels
-        self.network_capacity = network_capacity
+# class GeneratorVAEDecoder(nn.Module):
+#     def __init__(self, latent_dim, out_channels, network_capacity = 32):
+#         super(GeneratorVAEDecoder, self).__init__()
+#         self.latent_dim = latent_dim
+#         self.out_channels = out_channels
+#         self.network_capacity = network_capacity
 
 
-        networks_channels = [network_capacity*2**i for i in range(5)]
-        self.networks_channels = networks_channels[::-1]
-        # self.fc = nn.Linear(latent_dim, self.networks_channels[0] * 4 * 4)
-        self.model = nn.Sequential(
-            Conv2dTransposeStack(self.latent_dim, out_channels=self.networks_channels[0],\
-                                 kernel_size=4, stride=1, padding=0, output_padding=0, activation="leaky_relu", bias=False),
-            Conv2dTransposeStack(self.networks_channels[0], out_channels=self.networks_channels[1],\
-                                 kernel_size=2, stride=2, padding=0, output_padding=0, activation="leaky_relu", bias=False),#activation="relu", activation_args={"inplace": True}), # Output: (B, 256, 8, 8)
-            Conv2dTransposeStack(self.networks_channels[1], out_channels=self.networks_channels[2],\
-                                 kernel_size=4, stride=2, padding=1, output_padding=0, activation="leaky_relu", bias=False),#, activation="relu", activation_args={"inplace": True}), # Output: (B, 128, 16, 16)
-            Conv2dTransposeStack(self.networks_channels[2], out_channels=self.networks_channels[3],\
-                                 kernel_size=4, stride=2, padding=1, output_padding=0, activation="leaky_relu", bias=False),#, activation="relu", activation_args={"inplace": True}), # Output: (B, 64, 32, 32)
-            Conv2dTransposeStack(self.networks_channels[3], out_channels=self.networks_channels[4],\
-                                 kernel_size=4, stride=2, padding=1, output_padding=0, activation="leaky_relu", bias=False),#, activation="relu", activation_args={"inplace": True}), # Output: (B, 32, 64, 64)
-            nn.ConvTranspose2d(self.networks_channels[4], out_channels=out_channels, kernel_size=4,\
-                                stride=2, padding=1), # Output: (B, out_channels, 128, 128)
-            # We add convolution layer
-            nn.Conv2d(out_channels, out_channels=out_channels, stride=1, kernel_size=1,padding="same"),
-            nn.Sigmoid()
-        )
+#         networks_channels = [network_capacity*2**i for i in range(5)]
+#         self.networks_channels = networks_channels[::-1]
+#         # self.fc = nn.Linear(latent_dim, self.networks_channels[0] * 4 * 4)
+#         self.model = nn.Sequential(
+#             Conv2dTransposeStack(self.latent_dim, out_channels=self.networks_channels[0],\
+#                                  kernel_size=4, stride=1, padding=0, output_padding=0, activation="leaky_relu", bias=False),
+#             Conv2dTransposeStack(self.networks_channels[0], out_channels=self.networks_channels[1],\
+#                                  kernel_size=2, stride=2, padding=0, output_padding=0, activation="leaky_relu", bias=False),#activation="relu", activation_args={"inplace": True}), # Output: (B, 256, 8, 8)
+#             Conv2dTransposeStack(self.networks_channels[1], out_channels=self.networks_channels[2],\
+#                                  kernel_size=4, stride=2, padding=1, output_padding=0, activation="leaky_relu", bias=False),#, activation="relu", activation_args={"inplace": True}), # Output: (B, 128, 16, 16)
+#             Conv2dTransposeStack(self.networks_channels[2], out_channels=self.networks_channels[3],\
+#                                  kernel_size=4, stride=2, padding=1, output_padding=0, activation="leaky_relu", bias=False),#, activation="relu", activation_args={"inplace": True}), # Output: (B, 64, 32, 32)
+#             Conv2dTransposeStack(self.networks_channels[3], out_channels=self.networks_channels[4],\
+#                                  kernel_size=4, stride=2, padding=1, output_padding=0, activation="leaky_relu", bias=False),#, activation="relu", activation_args={"inplace": True}), # Output: (B, 32, 64, 64)
+#             nn.ConvTranspose2d(self.networks_channels[4], out_channels=out_channels, kernel_size=4,\
+#                                 stride=2, padding=1), # Output: (B, out_channels, 128, 128)
+#             # We add convolution layer
+#             nn.Conv2d(out_channels, out_channels=out_channels, stride=1, kernel_size=1,padding="same"),
+#             nn.Sigmoid()
+#         )
     
-    def forward(self, z):
-        # x = self.fc(z)
-        x = z.view(-1, self.latent_dim, 1, 1)
-        x = self.model(x)
-        return x
+#     def forward(self, z):
+#         # x = self.fc(z)
+#         x = z.view(-1, self.latent_dim, 1, 1)
+#         x = self.model(x)
+#         return x
 
 
 
@@ -171,7 +171,7 @@ class GAN(AbstractGAN):
 
         # Using V2 for testing purposes
         if generator is None:
-            generator = GeneratorVAEDecoder(noise_dim,out_channels)
+            generator = Decoder(noise_dim,out_channels)
         self.generator = generator
         # self.generator = GeneratorUpsampling(out_channels,noise_dim)
         if discriminator is None:
