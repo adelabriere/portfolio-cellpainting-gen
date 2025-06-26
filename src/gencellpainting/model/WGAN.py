@@ -2,49 +2,67 @@ from .conv_modules import *
 import torch.nn as nn
 import torch.nn.functional as F
 import torch
-from .GAN import GeneratorVAEDecoder
+import math
+from .VAE import Decoder
 import lightning as L
 from .abc_model import UnsupervisedImageGenerator, AbstractGAN
 
    
 
 class WGANCritic(nn.Module):
-    def __init__(self, in_channels, network_capacity = 32):
+    def __init__(self, in_channels, image_size, nlayers=None, network_capacity = 32, kernel_size=4):
         super(WGANCritic, self).__init__()
         self.in_channels = in_channels
+        self.image_size = image_size
         self.network_capacity = network_capacity 
-        networks_channels = [network_capacity*2**i for i in range(5)]
-        # Input size (B, in_channels, 128, 128)
-        self.model = nn.Sequential(
-            # we dont use batch norm
-            nn.Conv2d(in_channels, out_channels=networks_channels[0], kernel_size=4, stride=2, padding=1), # (B, _, 64, 64)
-            nn.InstanceNorm2d(networks_channels[0], affine=True),
-            nn.LeakyReLU(0.2, inplace=True),
-            nn.Conv2d(networks_channels[0], out_channels=networks_channels[1], kernel_size=4, stride=2, padding=1), # (B, _, 32, 32)
-            nn.InstanceNorm2d(networks_channels[1], affine=True),
-            nn.LeakyReLU(0.2, inplace=True),
-            nn.Conv2d(networks_channels[1], out_channels=networks_channels[2], kernel_size=4, stride=2, padding=1), # (B, _, 16, 16)
-            nn.InstanceNorm2d(networks_channels[2], affine=True),
-            nn.LeakyReLU(0.2, inplace=True),
-            nn.Conv2d(networks_channels[2], out_channels=networks_channels[3], kernel_size=4, stride=2, padding=1), # (B, _, 8, 8)
-            nn.InstanceNorm2d(networks_channels[3], affine=True),
-            nn.LeakyReLU(0.2, inplace=True),
-            nn.Conv2d(networks_channels[3], out_channels=networks_channels[4], kernel_size=4, stride=2, padding=1), # (B, _, 4, 4)
-            nn.InstanceNorm2d(networks_channels[4], affine=True),
-            nn.LeakyReLU(0.2, inplace=True),
-            nn.Conv2d(in_channels=networks_channels[-1], out_channels=1, kernel_size=4, stride=1, padding=0)
-        )
+        self.image_size=image_size
+        self.kernel_size = kernel_size
+        self.bias = True
+        self.activation = "relu"
+
+
+        # We count the number of layers
+        if nlayers is None:
+            nlayers = int(math.log2(self.image_size)-1)
+
+        network_channels = [network_capacity*2**i for i in range(nlayers)]
+        self.network_channels = network_channels
+        # self.networks_channels = networks_channels[::-1]
+
+        layers_list = []
+        # Initial reshaping layer
+        layers_list.extend([
+            nn.Conv2d(self.in_channels, out_channels=network_channels[0],\
+                                      kernel_size=self.kernel_size, stride=2, padding=1), # (B, _, 64, 64)
+            nn.InstanceNorm2d(network_channels[0], affine=True),
+            nn.LeakyReLU(0.2, inplace=True)
+        ])
+
+        for ilayer in range(0, nlayers-2):
+            cin = self.network_channels[ilayer]
+            cout = self.network_channels[ilayer+1]
+            cstride = 2
+            layers_list.extend([
+                nn.Conv2d(cin, out_channels=cout, kernel_size=4, stride=2, padding=2), # (B, _, 64, 64)
+                nn.InstanceNorm2d(cout, affine=True),
+                nn.LeakyReLU(0.2, inplace=True)
+            ])
+
+        self.net = nn.Sequential(*layers_list)
+        self.output = nn.Conv2d(cout, out_channels= 1, kernel_size=4, stride=2, padding=0)
 
     def forward(self, x):
-        return self.model(x)
+        x = self.net(x)
+        return self.output(x)
 
 class WGAN(AbstractGAN):
     """Own implemntation of https://arxiv.org/pdf/1701.07875 the parameters are taken from the paper"""
     def __init__(self, in_channels, out_channels, noise_dim, n_critic = 5, network_capacity=32,\
-                 clip_value = 0.01,learning_rate = 1e-4,epoch_monitoring_interval=1, n_images_monitoring=6):
+                 clip_value = 0.01,learning_rate = 1e-4,epoch_monitoring_interval=1,\
+                    n_images_monitoring=6):
         super(WGAN, self).__init__(epoch_monitoring_interval=epoch_monitoring_interval, n_images_monitoring=n_images_monitoring, add_original=True)
         # self.generator = GeneratorV2(out_channels,latent_dim=noise_dim)
-        self.generator  = GeneratorVAEDecoder(noise_dim, out_channels, network_capacity=network_capacity)
+        self.generator  = Decoder(noise_dim, out_channels, network_capacity=network_capacity)
         self.discriminator = WGANCritic(in_channels)
 
         self.noise_dim = noise_dim
@@ -59,7 +77,7 @@ class WGAN(AbstractGAN):
 
     def sample_z(self, batch_size):
         # unirofrm between 0 and 1
-        Z = torch.randn(batch_size, self.noise_dim)
+        Z = torch.rand(batch_size, self.noise_dim)
         return Z
     
     def generate_images(self, batch, n):
@@ -155,12 +173,13 @@ class WGAN(AbstractGAN):
 
 class WGAN_GP(AbstractGAN):
     """Own implemntation of https://arxiv.org/pdf/1701.07875 the parameters are taken from the paper"""
-    def __init__(self, in_channels, out_channels, noise_dim, n_critic = 5, vlambda=10,network_capacity=16,\
+    def __init__(self, in_channels, out_channels, noise_dim, n_critic = 5, vlambda=10,\
+                 network_capacity=16,image_size=128,\
                  learning_rate = 1e-5,epoch_monitoring_interval=1, n_images_monitoring=6):
         super(WGAN_GP, self).__init__(epoch_monitoring_interval=epoch_monitoring_interval, n_images_monitoring=n_images_monitoring, add_original=True)
         # self.generator = GeneratorV2(out_channels,latent_dim=noise_dim)
-        self.generator  = GeneratorVAEDecoder(noise_dim, out_channels, network_capacity=network_capacity)
-        self.discriminator = WGANCritic(in_channels)
+        self.generator  = Decoder(noise_dim, out_channels, image_size=image_size, network_capacity=network_capacity)
+        self.discriminator = WGANCritic(in_channels, image_size)
 
         self.noise_dim = noise_dim
         self.n_critic = n_critic
@@ -242,32 +261,41 @@ class WGAN_GP(AbstractGAN):
 
         total_grad_penalty = 0.0
 
+        mones = torch.tensor(-1).to(real_images.device)
+        ones = torch.tensor(1).to(real_images.device)
+
         for ic in range(self.n_critic):
+
+            opt_disc.zero_grad()
             # Sample the real data
             R = critic_images[ic]
 
             # Sample the prior data
-            Z = self.sample_z(R.size(0)).to(R.device)
-            
             d_R_disc = self.discriminator(R)
+            d_R_disc = d_R_disc.mean()
+            self.manual_backward(d_R_disc,mones)
+
 
             # PRevent gradient ocmputation on the first model
+            Z = self.sample_z(R.size(0)).to(R.device)
             G_Z = self.generator(Z)
             d_G_disc = self.discriminator(G_Z)
-
-            d_R_disc = d_R_disc.mean()
             d_G_disc = d_G_disc.mean()
+            self.manual_backward(d_G_disc,ones)
 
-            grad_penalty = self.compute_gradient_penalty(R, G_Z)
+
+
+
+
+
+            grad_penalty = self.vlambda*self.compute_gradient_penalty(R, G_Z)
+            self.manual_backward(grad_penalty)
 
             total_grad_penalty += grad_penalty
 
             # Loss used in the paper
             D_loss_disc = d_G_disc - d_R_disc + self.vlambda * grad_penalty
 
-            opt_disc.zero_grad()
-            # Computing the gradient
-            self.manual_backward(D_loss_disc)
             # Updating parameters
             opt_disc.step()
 
@@ -277,17 +305,17 @@ class WGAN_GP(AbstractGAN):
         self.disable_discriminator_training()
         self.enable_generator_training()
 
+        opt_gen.zero_grad()
+
         Z = self.sample_z(real_images.size(0)).to(real_images.device)
         G_Z = self.generator(Z)
         d_G = self.discriminator(G_Z)
-        d_G = -d_G.mean()
-        G_loss = d_G
-        opt_gen.zero_grad()
-        self.manual_backward(G_loss)
+        d_G = d_G.mean()
+        self.manual_backward(d_G,mones)
         opt_gen.step()
 
         # We can log the metrics
-        self.log_dict({"G_loss": G_loss, "C_loss": D_loss_disc, "d_C_loss": d_R_disc, "d_G_loss": d_G_disc, "GradPen": total_grad_penalty},prog_bar=True)
+        self.log_dict({"G_loss": -d_G, "C_loss": D_loss_disc, "d_C_loss": d_R_disc, "d_G_loss": d_G_disc, "GradPen": total_grad_penalty},prog_bar=True)
     
         # Label for Precision and Recall
         super().training_step(batch[0], batch_idx, None, None)
