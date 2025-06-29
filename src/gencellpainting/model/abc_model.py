@@ -1,4 +1,4 @@
-from gencellpainting.model.conv_modules import Conv2dStack,Conv2dTransposeStack
+from gencellpainting.model.net.conv_modules import Conv2dStack,Conv2dTransposeStack
 from gencellpainting.evaluation.clip_fih import FrechetCLIPDistance
 import torch
 import lightning as L

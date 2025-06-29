@@ -1,4 +1,4 @@
-from .conv_modules import *
+from .net.conv_modules import *
 import torch.nn as nn
 import torch.nn.functional as F
 import torch
@@ -57,7 +57,7 @@ class DiffusionProcess(UnsupervisedImageGenerator):
         t = torch.randint(low=1,high=self.nsteps)
 
         # forqward process
-        noised_images = self.forward_process(images, epsilon,)
+        noised_images = self.forward_process(images, epsilon, t)
 
         # Predicting the values of espilon
         estimated_epsilon = self.model(noised_images, t)
@@ -73,12 +73,11 @@ class DiffusionProcess(UnsupervisedImageGenerator):
             batch = torch.zeros(n,self.in_channels,self.image_size,self.image_size)
         x = self.gaussian_noise(batch)
         for t in range(self.nsteps,0,-1):
-            
-
-
-
-
-        return super().generate_images(batch, n)
+            z = self.gaussian_noise(batch) if t>1 else torch.zeros_like(batch)
+            calpha = self.alphas[t]
+            malpha = 1-calpha
+            x = (1/calpha.sqrt())*(x - (malpha/calpha.sqrt())*self.model(x,t)) + z
+        return x
     
     def configure_optimizers(self):
         return torch.optim.Adam(self.model.parameters(), lr=1e-4)
