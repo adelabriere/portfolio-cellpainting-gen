@@ -94,5 +94,3 @@ class UNet(nn.Module):
             x = up(x , xi)
         
         return self.final_layer(x)
-
-
