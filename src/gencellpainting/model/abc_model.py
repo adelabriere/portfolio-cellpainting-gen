@@ -18,7 +18,7 @@ class UnsupervisedImageGenerator(L.LightningModule):
         self.last_monitored_epoch = -1
         self.n_images_monitoring = n_images_monitoring
         self.add_original = add_original
-        self.clip_frechet_distance = FrechetCLIPDistance()
+        # self.clip_frechet_distance = FrechetCLIPDistance()
 
     def training_step(self, batch, batch_idx):
         self.monitor_training(batch)
@@ -56,13 +56,14 @@ class UnsupervisedImageGenerator(L.LightningModule):
             self.compute_metrics(batch)
 
     def compute_metrics(self,batch):
-        nimages = batch.size(0)
-        fake_images = self.generate_images(batch = batch, n=nimages)
-        self.clip_frechet_distance.update(batch,is_real=True)
-        self.clip_frechet_distance.update(fake_images,is_real=False)
-        score = self.clip_frechet_distance.compute()
-        self.log("FrechetCLIPDistance",float(score))
-        self.clip_frechet_distance.reset()
+        pass
+        # nimages = batch.size(0)
+        # fake_images = self.generate_images(batch = batch, n=nimages)
+        # self.clip_frechet_distance.update(batch,is_real=True)
+        # self.clip_frechet_distance.update(fake_images,is_real=False)
+        # score = self.clip_frechet_distance.compute()
+        # self.log("FrechetCLIPDistance",float(score))
+        # self.clip_frechet_distance.reset()
 
     def generate_images(self, batch=None, n=6):
         raise NotImplementedError("Method need to be implemented")

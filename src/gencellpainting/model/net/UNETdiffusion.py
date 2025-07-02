@@ -65,12 +65,13 @@ class UnetExpansionDiffusionStack(nn.Module):
 
 
 class UNetDiffusion(nn.Module):
-    def __init__(self, in_channels, out_channels, time_channels, network_capacity=64, nlayers=4):
+    def __init__(self, in_channels, out_channels, time_channels, network_capacity=64, nlayers=4, activation="tanh"):
         super(UNetDiffusion,self).__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
         self.network_capacity = network_capacity
         self.nlayers = nlayers
+        self.activation = activation
 
         network_channels = [network_capacity*(2**i) for i in range(nlayers + 1)]
         self.network_channels = network_channels
@@ -92,7 +93,15 @@ class UNetDiffusion(nn.Module):
             cout_channels = network_channels[nlayers - i - 2] if i != (nlayers-1) else network_channels[nlayers - i - 1]
             self.extending_path.append(UnetExpansionDiffusionStack(cin_channels, cout_channels, time_channels))
 
-        self.final_layer = nn.Conv2d(network_channels[0], out_channels, kernel_size=1)
+        if activation == "tanh":
+            activation = nn.Tanh()
+        else:
+            activation = nn.Sigmoid()
+
+        self.final_layer = nn.Sequential(
+            nn.Conv2d(network_channels[0], out_channels, kernel_size=1),
+            activation
+        )
 
     def forward(self, x, time_emb):
         contractions = []
