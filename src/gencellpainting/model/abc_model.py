@@ -35,6 +35,9 @@ class UnsupervisedImageGenerator(L.LightningModule):
             sub_batch = batch[:min_dim,:,:,:]
             images = self.generate_images(batch = sub_batch, n=min_dim)
 
+            print("Monitored batch range {}-{} gen range {}-{}".format(sub_batch.min(),sub_batch.max(),images.min(),\
+                                                                       images.max(),))
+
             # print("Flag value {}".format(self.add_original))
             if self.add_original: # we add the original
                 # print("Batch shape {} gene images shape {}".format(batch.size(),images.size()))

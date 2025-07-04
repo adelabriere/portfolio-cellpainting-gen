@@ -12,10 +12,16 @@ from .abc_model import UnsupervisedImageGenerator, AbstractGAN
 def cosine_beta_scheduling(nsteps, s=8e-3):
     Ts = nsteps+1
     x = torch.linspace(0,1,Ts)
-    f = torch.cos(((x+s)/(1+2)) * torch.pi * 0.5 ) ** 2
+    f = torch.cos(((x+s)/(1+s)) * torch.pi * 0.5 ) ** 2
     alphas = f/f[0]
-    betas = torch.clamp(1-alphas[1:]/alphas[:-1],min=0.0001, max=0.999)
+    betas = torch.clamp(1-alphas[1:]/alphas[:-1],min=0.0001, max=0.9999)
     return betas
+
+# Not used
+def linear_beta_scheduling(timesteps):
+    beta_start = 0.0001
+    beta_end = 0.02
+    return torch.linspace(beta_start, beta_end, timesteps)
 
 class TransformerPositionalEmbedding(nn.Module):
     """
@@ -47,45 +53,58 @@ class TransformerPositionalEmbedding(nn.Module):
         return self.pe_matrix[timestep]
 
 class DiffusionProcess(UnsupervisedImageGenerator):
-    def __init__(self, in_channels, nsteps, model, time_dim=128,image_size=128,\
-                learning_rate = 1e-4,epoch_monitoring_interval=1, n_images_monitoring=6, device="cuda"):
+    def __init__(self, in_channels, nsteps, model, time_dim=128,image_size=128,include_time_emb=True,\
+                learning_rate = 5e-4,epoch_monitoring_interval=1, n_images_monitoring=6, device="cuda"):
         super(DiffusionProcess, self).__init__(epoch_monitoring_interval=epoch_monitoring_interval, n_images_monitoring=n_images_monitoring, add_original=True)
         
         self.nsteps = nsteps
         self.in_channels = in_channels
-        cbetas = cosine_beta_scheduling(self.nsteps)
+        self.learning_rate = learning_rate
+        self.include_time_emb = include_time_emb
+        cbetas = linear_beta_scheduling(self.nsteps)
+        #cbetas = cosine_beta_scheduling(self.nsteps)
         calphas = 1 - cbetas
-        csum_alphas = torch.cumprod(calphas, axis=0)
-        csum_sqrt_alphas = torch.sqrt(csum_alphas)
+        cprod_alphas = torch.cumprod(calphas, axis=0)
+        cprod_sqrt_alphas = torch.sqrt(cprod_alphas)
+
+        self.loss = nn.SmoothL1Loss()
+
 
         # Registering the buffers
         self.register_buffer("alphas",calphas)
         self.register_buffer("betas",cbetas)
         self.register_buffer("sqrt_alphas",torch.sqrt(calphas))
-        self.register_buffer("inv_sqrt_alphas",1/torch.sqrt(calphas))
-        self.register_buffer("cum_alphas",torch.sqrt(csum_alphas))
-        self.register_buffer("sqrt_cum_alphas",torch.sqrt(csum_sqrt_alphas))
-        self.register_buffer("m_sqrt_cum_alphas",torch.sqrt(1-csum_sqrt_alphas))
+        self.register_buffer("inv_sqrt_alphas",torch.sqrt(1. / calphas))
+        self.register_buffer("cum_alphas",cprod_alphas)
+        self.register_buffer("sqrt_cum_alphas",cprod_sqrt_alphas)
+        self.register_buffer("m_sqrt_cum_alphas",torch.sqrt(1. - cprod_alphas))
+
+        # POosterior variance
+        csum_alphas_prev = F.pad(cprod_alphas[:-1], (1, 0), value=1.0)
+        csigma = cbetas * (1. - csum_alphas_prev) / (1. - cprod_alphas)
+        self.register_buffer("sigma",torch.sqrt(csigma))
+
         self.image_size = image_size
         self.time_dim = time_dim
         self.model = model
-        self.time_model = TransformerPositionalEmbedding(self.time_dim, max_timesteps=nsteps, device=device)
+        if self.include_time_emb:
+            self.time_model = TransformerPositionalEmbedding(self.time_dim, max_timesteps=nsteps, device=device)
 
     def gaussian_noise(self,images):
         epsilon = torch.randn(*images.size(),device=images.device)
         return epsilon
 
-    def forward_process(self, images, epsilon, t):
+    def q_sample(self, images, epsilon, t):
         B,C,H,W = images.size()
-        alphat = self.sqrt_cum_alphas[t]
-        malphat = self.m_sqrt_cum_alphas[t]
-        alphat = alphat[:,None,None,None]
-        malphat = malphat[:,None,None,None]
-        malphat = malphat.expand(-1,C,H,W)
-        alphat = alphat.expand(-1,C,H,W)
+        sqrt_alphas_cumprod = self.sqrt_cum_alphas[t]
+        sqrt_alphas_cumprod = sqrt_alphas_cumprod[:,None,None,None]
+        sqrt_alphas_cumprod = sqrt_alphas_cumprod.expand(-1,C,H,W)
+
+        m_sqrt_alphas_cumprod = self.m_sqrt_cum_alphas[t]
+        m_sqrt_alphas_cumprod = m_sqrt_alphas_cumprod[:,None,None,None]
+        m_sqrt_alphas_cumprod = m_sqrt_alphas_cumprod.expand(-1,C,H,W)
         # Computing the noisy image
-        images = torch.sqrt(alphat) * images + malphat * epsilon
-        return images
+        return sqrt_alphas_cumprod * images + m_sqrt_alphas_cumprod * epsilon
 
     def backward_process(self,batch):
         pass
@@ -98,39 +117,95 @@ class DiffusionProcess(UnsupervisedImageGenerator):
         epsilon = self.gaussian_noise(images)
 
         # Sampling t
-        t = torch.randint(low=1,high=self.nsteps, size = (B,)).to(batch.device)
-        emb_t = self.time_model(t)
+        t = torch.randint(low=0,high=self.nsteps, size = (B,)).to(batch.device)
+        if self.include_time_emb:
+            emb_t = self.time_model(t)
+        else:
+            emb_t = t
 
         # forqward process
-        noised_images = self.forward_process(images, epsilon, t)
+        noised_images = self.q_sample(images, epsilon, t)
+        self.log_dict({
+            "noised_min": noised_images.min(),
+            "noised_max": noised_images.max(),
+            "noised_mean": noised_images.mean(),
+            "noised_std": noised_images.std()
+        })
 
         # Predicting the values of espilon
         estimated_epsilon = self.model(noised_images, emb_t)
 
         # Computing the loss
-        loss = F.mse_loss(estimated_epsilon, epsilon)
-        self.log("MSE",loss)
+        vloss = self.loss(estimated_epsilon, epsilon)
+        self.log("train_loss",vloss)
+        # self.log_dict({
+        #     "eps_min": epsilon.min(),
+        #     "eps_min_est": estimated_epsilon.min(),
+        #     "eps_max": epsilon.max(),
+        #     "eps_max_est":  estimated_epsilon.max(),
+        #     "eps_mean": epsilon.mean(),
+        #     "eps_mean_est":  estimated_epsilon.mean(),
+        #     "eps_std": epsilon.std(),
+        #     "eps_std_est":  estimated_epsilon.std()
+        # })
         super().training_step(batch, batch_idx)
-        return loss
+        return vloss
     
-    def generate_images(self, batch=None, n=6):
+    def step_sampling(self, x, t, t_emb):
+            cinv_sqrt_alpha = self.inv_sqrt_alphas[t]
+            cm_sqrt_cum_alpha = self.m_sqrt_cum_alphas[t]
+            cbeta = self.betas[t]
+            
+            model_mean = cinv_sqrt_alpha * (
+                x - cbeta * self.model(x,t_emb) / cm_sqrt_cum_alpha
+            )
 
+            if t==0:
+                return model_mean
+            else:
+                noise = self.gaussian_noise(x)
+                csigma = self.sigma[t]
+
+                return model_mean + csigma * noise
+        # Sampling the right constants
+    @torch.no_grad()
+    def generate_images(self, batch=None, n=6, return_intermediate=False, return_frequency=10):
         if batch is None:
             batch = torch.zeros(n,self.in_channels,self.image_size,self.image_size)
             batch = batch.to(self.device)
         x = self.gaussian_noise(batch)
-        timesteps = torch.arange(self.nsteps, 0, -1) - 1
-        timesteps = timesteps[:,None]
+        seq_timesteps = list(reversed(range(0,self.nsteps)))
+        timesteps = torch.tensor(seq_timesteps).view(-1,1)
         timesteps = timesteps.to(self.device)
-        emb_timesteps = self.time_model(timesteps) 
-        for t,emb_t in zip(range(self.nsteps,0,-1),emb_timesteps):
-            z = self.gaussian_noise(batch) if t>1 else torch.zeros_like(batch)
-            cinv_sqrt_alpha = self.inv_sqrt_alphas[t-1]
-            csqrt_cum_alpha = self.m_sqrt_cum_alphas[t-1]
-            malpha = 1 - self.alphas[t-1]
-            csigma = self.betas[t-1]
-            x = cinv_sqrt_alpha *(x - (malpha/csqrt_cum_alpha)*self.model(x,emb_t)) + z * csigma
-        return x
+        if self.include_time_emb:
+            emb_timesteps = self.time_model(timesteps)
+        else:
+            emb_timesteps = timesteps
+
+        intermediates = []
+
+        for t,t_emb in zip(seq_timesteps,emb_timesteps):
+            # We expanding the mebedding
+            B = batch.size(0)
+            # t_emb_e = t_emb[None,:]
+            # print("t_emb_e {}".format(t_emb_e.shape))
+            t_emb_e = t_emb.expand(B, -1)
+            x = self.step_sampling(x, t, t_emb_e)
+            if t % return_frequency == 0:
+                st = str(t)
+                self.log_dict({
+                    ("x_sampling_min_"+st): x.min(),
+                    ("x_sampling_max_"+st): x.max(),
+                    ("x_sampling_mean_"+st): x.mean(),
+                    ("x_sampling_std_"+st): x.std()
+                })
+            if return_intermediate and t % return_frequency == 0:
+                intermediates.append(x.detach().cpu())
+        clipped_image = torch.clamp(x, min=-1., max=1.)
+        if not return_intermediate:
+            return clipped_image
+        return clipped_image, intermediates
+        
     
     def configure_optimizers(self):
-        return torch.optim.Adam(self.model.parameters(), lr=1e-4)
+        return torch.optim.Adam(self.model.parameters(), lr=self.learning_rate)
