@@ -1,13 +1,12 @@
-from .net.conv_modules import *
+import torch
+
 import torch.nn as nn
 import torch.nn.functional as F
-import torch
-import math
-from .VAE import Decoder
 import lightning as L
-from .abc_model import UnsupervisedImageGenerator, AbstractGAN
 
-   
+from .abc_model import UnsupervisedImageGenerator
+from .net.conv_modules import *
+from gencellpainting.constants import MONITORED_LOSS
 
 def cosine_beta_scheduling(nsteps, s=8e-3):
     Ts = nsteps+1
@@ -111,7 +110,7 @@ class DiffusionProcess(UnsupervisedImageGenerator):
 
     def training_step(self, batch, batch_idx):
         images = batch # B x C x H x W
-        B,C,H,W = batch.size()
+        B,_,_,_ = batch.size()
 
         # Sampling noise
         epsilon = self.gaussian_noise(images)
@@ -125,32 +124,41 @@ class DiffusionProcess(UnsupervisedImageGenerator):
 
         # forqward process
         noised_images = self.q_sample(images, epsilon, t)
-        self.log_dict({
-            "noised_min": noised_images.min(),
-            "noised_max": noised_images.max(),
-            "noised_mean": noised_images.mean(),
-            "noised_std": noised_images.std()
-        })
 
         # Predicting the values of espilon
         estimated_epsilon = self.model(noised_images, emb_t)
 
         # Computing the loss
         vloss = self.loss(estimated_epsilon, epsilon)
-        self.log("train_loss",vloss)
-        # self.log_dict({
-        #     "eps_min": epsilon.min(),
-        #     "eps_min_est": estimated_epsilon.min(),
-        #     "eps_max": epsilon.max(),
-        #     "eps_max_est":  estimated_epsilon.max(),
-        #     "eps_mean": epsilon.mean(),
-        #     "eps_mean_est":  estimated_epsilon.mean(),
-        #     "eps_std": epsilon.std(),
-        #     "eps_std_est":  estimated_epsilon.std()
-        # })
+        self.log("total_loss_train",vloss)
         super().training_step(batch, batch_idx)
         return vloss
     
+    def validation_step(self, batch, batch_idx):
+        images = batch # B x C x H x W
+        B,_,_,_ = batch.size()
+
+        # Sampling noise
+        epsilon = self.gaussian_noise(images)
+
+        # Sampling t
+        t = torch.randint(low=0,high=self.nsteps, size = (B,)).to(batch.device)
+        if self.include_time_emb:
+            emb_t = self.time_model(t)
+        else:
+            emb_t = t
+
+        # forqward process
+        noised_images = self.q_sample(images, epsilon, t)
+
+        # Predicting the values of espilon
+        estimated_epsilon = self.model(noised_images, emb_t)
+
+        # Computing the loss
+        vloss = self.loss(estimated_epsilon, epsilon)
+        self.log(MONITORED_LOSS,vloss)
+        return vloss
+
     def step_sampling(self, x, t, t_emb):
             cinv_sqrt_alpha = self.inv_sqrt_alphas[t]
             cm_sqrt_cum_alpha = self.m_sqrt_cum_alphas[t]
@@ -193,12 +201,6 @@ class DiffusionProcess(UnsupervisedImageGenerator):
             x = self.step_sampling(x, t, t_emb_e)
             if t % return_frequency == 0:
                 st = str(t)
-                self.log_dict({
-                    ("x_sampling_min_"+st): x.min(),
-                    ("x_sampling_max_"+st): x.max(),
-                    ("x_sampling_mean_"+st): x.mean(),
-                    ("x_sampling_std_"+st): x.std()
-                })
             if return_intermediate and t % return_frequency == 0:
                 intermediates.append(x.detach().cpu())
         clipped_image = torch.clamp(x, min=-1., max=1.)

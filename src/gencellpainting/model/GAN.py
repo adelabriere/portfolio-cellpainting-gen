@@ -1,4 +1,4 @@
-from .conv_modules import UpsampleConvStack, Conv2dTransposeStack, Conv2dStack
+from .net.conv_modules import UpsampleConvStack, Conv2dTransposeStack, Conv2dStack
 import torch.nn as nn
 import torch.nn.functional as F
 import torch

@@ -1,14 +1,13 @@
-from .net.CNN import Decoder
-from .abc_model import UnsupervisedImageGenerator, AbstractGAN
+import math
+import torch
 
 import torch.nn as nn
 import torch.nn.functional as F
-import torch
-
 import lightning as L
 
-import math
-
+from .net.CNN import Decoder
+from .abc_model import AbstractGAN
+from gencellpainting.constants import MONITORED_LOSS
 
    
 
@@ -171,11 +170,6 @@ class WGAN_GP(AbstractGAN):
             d_G_disc = d_G_disc.mean()
             self.manual_backward(d_G_disc,ones)
 
-
-
-
-
-
             grad_penalty = self.vlambda*self.compute_gradient_penalty(R, G_Z)
             self.manual_backward(grad_penalty)
 
@@ -203,7 +197,8 @@ class WGAN_GP(AbstractGAN):
         opt_gen.step()
 
         # We can log the metrics
-        self.log_dict({"G_loss": -d_G, "C_loss": D_loss_disc, "d_C_loss": d_R_disc, "d_G_loss": d_G_disc, "GradPen": total_grad_penalty},prog_bar=True)
+        self.log_dict({MONITORED_LOSS: d_G, "G_loss": d_G, "C_loss": D_loss_disc,\
+                        "d_C_loss": d_R_disc, "d_G_loss": d_G_disc, "GradPen": total_grad_penalty},prog_bar=True)
     
         # Label for Precision and Recall
         super().training_step(batch[0], batch_idx, None, None)
