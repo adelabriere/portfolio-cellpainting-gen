@@ -7,26 +7,26 @@ import tqdm
 
 
 class CellPaintingDatasetInMemory(torchvision.datasets.VisionDataset):
-    def __init__(self, n_images=None,paths=None, **kwargs):
-       super().__init__(**kwargs)
-       
-       # Initializing the dataset
-       self.paths = None
+    def __init__(self, n_images=None,paths=None, tensor=None, **kwargs):
+        super().__init__(**kwargs)
+        # Initializing the dataset
+        self.paths = None
 
-       self.height = None
-       self.width = None
-       self.n_channels = None
-       self.n_samples = None
-       self.n_images = n_images
+        self.height = None
+        self.width = None
+        self.n_channels = None
+        self.n_samples = None
+        self.n_images = n_images
 
-       self.tensors = None
-
-       self.paths = paths
-       if self.paths is None:
-          self._build_paths()
-       self._load_data()
-       self._compute_metadatas()
-
+        self.tensor = None
+        if tensor is  None:
+            self.paths = paths
+            if self.paths is None:
+                self._build_paths()
+            self._load_data()
+        else:
+            self.tensor = tensor
+        self._compute_metadatas()
 
     def _build_paths(self):
         self.paths = [x for x in os.listdir(self.root)]
@@ -39,17 +39,17 @@ class CellPaintingDatasetInMemory(torchvision.datasets.VisionDataset):
         # Load data without multiprocessing as it crashes
         tensors = [torch.load(os.path.join(self.root, x)) for x in tqdm.tqdm(self.paths)]
         
-        self.tensors = torch.stack(tensors)
+        self.tensor = torch.stack(tensors)
 
     def _compute_metadatas(self):
-        N, C, H, W = self.tensors.shape
+        N, C, H, W = self.tensor.shape
         self.height = H
         self.width = W
         self.n_channels = C
         self.n_samples = N
     
     def __getitem__(self, index):
-        img = self.tensors[index]
+        img = self.tensor[index]
         if self.transform is not None:
             img = self.transform(img)
         return img

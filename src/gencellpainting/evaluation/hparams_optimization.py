@@ -1,6 +1,6 @@
 import logging
 import os
-import csv
+import pandas as pd
 
 from torch.utils.data import DataLoader
 from typing import Optional
@@ -34,6 +34,13 @@ class HyperParametersOptimizer:
         self.early_stopping_metric = early_stopping_metric
         self.trainer_args = trainer_args
 
+        self._initialize()
+
+    def _initialize(self):
+        nparams = 1
+        for v in self.hparams.values():
+            nparams = nparams * len(v)
+        self.nparams = nparams
         self._initialize_paths()
         
     def _initialize_paths(self):
@@ -105,7 +112,8 @@ class HyperParametersOptimizer:
         if i==0:
             with open(self.csv_path, "w") as csv:
                 # Writing the header
-                headers = list(hparams.keys()) + list(metrics.keys())
+                names_hparams = [f"hparam/{k}" for k in hparams.keys()]
+                headers = names_hparams + list(metrics.keys())
                 csv.write(",".join(headers)+"\n")
         with open(self.csv_path, "a") as csv:
             # Writing the values
@@ -118,7 +126,6 @@ class HyperParametersOptimizer:
         hparams_grid = list(product(*self.hparams.values()))
         hparams_names = self.hparams.keys()
         metrics = []
-        logging.info(f"Starting hyperparameters optimization")
         for i,params in enumerate(hparams_grid):
             logging.info(f"{i+1}/{len(hparams_grid)}")
             chparams = dict(zip(hparams_names,params))
@@ -131,7 +138,21 @@ class HyperParametersOptimizer:
 
         best_hparams = dict(zip(hparams_names,hparams_grid[idx_min]))
         return best_hparams, metrics
-        
+    
+    def get_best_params(self):
+        if not os.path.isfile(self.csv_path):
+            raise FileNotFoundError("File {self.csv_path} not found please run optimization with the 'optimize_parameters'.")
+         
+        metrics = pd.read_csv(self.csv_path)
+        idx_min = metrics[self.metric].idxmin()
+        best_params = metrics.iloc[idx_min].to_dict()
+
+        # subsetting parameters
+        best_params = {k.replace("hparam/",""):v for k,v in best_params.items() if k.startswith("hparam")}
+        full_params = self.fixed_args.copy()
+        full_params.update(best_params)
+        return full_params
+       
 
 
 

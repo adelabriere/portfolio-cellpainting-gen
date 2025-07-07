@@ -3,7 +3,7 @@ import numpy
 
 from typing import *
 
-from .mdataset import CellPaintingDatasetInMemory
+from .dataset import CellPaintingDatasetInMemory
 from torch.utils.data import DataLoader, random_split
 from torch import Generator
 

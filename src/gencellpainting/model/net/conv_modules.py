@@ -26,10 +26,6 @@ class Conv2dStack(nn.Module):
         x = self.activation_layer(x)
         return x
 
-
-
-
-
 class Conv2dTransposeStack(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size, padding, stride=1, output_padding=0, activation="leaky_relu", activation_args=None, bias=False):
         super(Conv2dTransposeStack, self).__init__()
