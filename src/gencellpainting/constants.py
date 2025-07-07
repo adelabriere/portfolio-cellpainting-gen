@@ -1,0 +1,1 @@
+MONITORED_LOSS = "total_loss_val"

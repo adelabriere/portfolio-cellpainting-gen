@@ -12,14 +12,15 @@ from gencellpainting.model.abc_model import UnsupervisedImageGenerator
 from gencellpainting.constants import MONITORED_LOSS
 
 class HyperParametersOptimizer:
-    def __init__(self, model: UnsupervisedImageGenerator, dl: DataLoader, hparams: dict,\
+    def __init__(self, model: type, dl: DataLoader, hparams: dict,\
                  folder:str, metric:str=MONITORED_LOSS,early_stopping_metric:str = "train_loss",\
-                dl_val: Optional[DataLoader]=None, max_steps:int = 100, patience:int = 5,\
+                dl_val: Optional[DataLoader]=None, patience:int = 5,\
                       name_model:str = "model", trainer_args = {"accelerator":"gpu", "max_epochs":100},\
-                 **kwargs):
-        
+                 fixed_args=None):        
         self.hparams = hparams# Model hyperparamters as a dictionnary
-        self.supp_args = kwargs
+        self.fixed_args = fixed_args
+        if self.fixed_args is None:
+            self.fixed_args = {}
         self.model = model
         self.dl = dl
         self.dl_val = dl_val
@@ -29,10 +30,11 @@ class HyperParametersOptimizer:
         self.folder_model = None
         self.csv_path = None
         self.name_model = name_model
-        self.max_steps = max_steps
         self.patience = patience
         self.early_stopping_metric = early_stopping_metric
         self.trainer_args = trainer_args
+
+        self._initialize_paths()
         
     def _initialize_paths(self):
         
@@ -42,32 +44,34 @@ class HyperParametersOptimizer:
             raise FileNotFoundError("Parent folder {dirname} needs to exist")
         
         # Creating the folders
-        os.mkdir(self.folder)
+        os.makedirs(self.folder, exist_ok = True)
 
         path_logs = os.path.join(self.folder, "logs")
-        os.makedirs(path_logs, exist_ok=True)
+        if not os.path.isdir(path_logs):
+            os.makedirs(path_logs, exist_ok=True)
         self.folder_log = path_logs
 
         path_models = os.path.join(self.folder, "models")
+
         os.makedirs(path_models, exist_ok=True)
         self.folder_model = path_models
 
         self.csv_path = os.path.join(self.folder, "metrics.csv")
 
     def build_name(self,params):
-        return "_".join([(str(k)[0])+str(v) for k,v in params.items()])
+        return "_".join([self.name_model]+[(str(k)[0])+str(v) for k,v in params.items()])
 
     def single_run(self, hparams):
 
         # Instantiate the model
-        cmodel = self.model(**hparams, **self.supp_args)
+        cmodel = self.model(**hparams, **self.fixed_args)
 
         model_name = self.build_name(hparams)
 
         # Creating the logger
         tb_logger = L.pytorch.loggers.TensorBoardLogger(self.folder_log, name=model_name)
 
-        filename_fmt = '{'+self.name_model+'}'
+        filename_fmt = '{'+model_name+'}'
         callbacks = []
 
         if self.early_stopping_metric is not None:
@@ -84,7 +88,7 @@ class HyperParametersOptimizer:
 
         # Trainer
         trainer = L.Trainer(logger=tb_logger, callbacks=callbacks,\
-                            **self.trainer_args)
+                            enable_progress_bar=False, **self.trainer_args)
         
         dl_args = {"train_dataloaders": self.dl}
         if self.dl_val is not None:
@@ -93,19 +97,19 @@ class HyperParametersOptimizer:
         # Training
         trainer.fit(cmodel, **dl_args)
 
-        # Extracting the last metric value
-        metric_value = float(trainer.logged_metrics[self.metric])
-        return metric_value
+        # Extracting all the metrics values from the model
+        dic_metrics = {k:float(v) for k,v in trainer.logged_metrics.items()}
+        return dic_metrics
     
-    def log_metrics(self, i, hparams, metric):
+    def log_metrics(self, i, hparams, metrics):
         if i==0:
             with open(self.csv_path, "w") as csv:
                 # Writing the header
-                headers = hparams.keys() + self.metric
+                headers = list(hparams.keys()) + list(metrics.keys())
                 csv.write(",".join(headers)+"\n")
         with open(self.csv_path, "a") as csv:
             # Writing the values
-            values = hparams.values() + [metric]
+            values = list(hparams.values()) + list(metrics.values())
             values = [str(v) for v in values]
             csv.write(",".join(values)+"\n")
 
@@ -118,14 +122,15 @@ class HyperParametersOptimizer:
         for i,params in enumerate(hparams_grid):
             logging.info(f"{i+1}/{len(hparams_grid)}")
             chparams = dict(zip(hparams_names,params))
-            metric = self.single_run(chparams)
-            metrics.append(metric)
-            self.log_metrics(i,chparams,metric)
+            vmetrics = self.single_run(chparams)
+            monitored_metric_val = vmetrics[self.metric]
+            metrics.append(monitored_metric_val)
+            self.log_metrics(i,chparams,vmetrics)
         idx_min = [i for i,o in enumerate(metrics) if o==min(metrics)]
         idx_min = idx_min[0]
 
         best_hparams = dict(zip(hparams_names,hparams_grid[idx_min]))
-        return best_hparams, metrics,
+        return best_hparams, metrics
         
 
 

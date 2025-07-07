@@ -27,7 +27,7 @@ class UnsupervisedImageGenerator(L.LightningModule):
         raise NotImplementedError("Method need to be implemented")
 
     def monitor_training(self, batch):
-        if self.current_epoch % self.epoch_monitoring_interval == 0 and \
+        if self.epoch_monitoring_interval!= -1 and self.current_epoch % self.epoch_monitoring_interval == 0 and \
             self.last_monitored_epoch != self.current_epoch:
             self.last_monitored_epoch = self.current_epoch
             Nchannel = batch.size(1)
