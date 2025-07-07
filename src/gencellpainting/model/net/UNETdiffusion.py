@@ -1,8 +1,8 @@
-from .conv_modules import Conv2dStack,Conv2dTransposeStack
+from .conv_modules import Conv2dStack,Conv2dTransposeStack, ConvNextBlock
 import torch
 import math
 import torch.nn as nn
-from torch.distributions.multivariate_normal import MultivariateNormal
+
 
 class ResNetBlock(nn.Module):
     def __init__(self, in_channels, out_channels, time_dim, middle_channels=None,kernel_size=3):
