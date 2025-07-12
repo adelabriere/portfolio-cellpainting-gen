@@ -5,31 +5,35 @@ import torch.nn as nn
 from torch.distributions.multivariate_normal import MultivariateNormal
 
 class EncoderWithPooling(nn.Module):
-    def __init__(self, in_channels, latent_dim, network_capacity=32,):
-
-        self.network_capacity = network_capacity
-
-        networks_channels = [network_capacity*2**i for i in range(4)]
-
+    def __init__(self, in_channels, latent_dim, network_capacity=32, image_size=128, nlayers=None):
         super(EncoderWithPooling, self).__init__()
-        self.model = nn.Sequential(
-            Conv2dStack(in_channels, out_channels=networks_channels[0], kernel_size=4, stride=1, padding="same"),
-            nn.MaxPool2d(kernel_size=2, stride = 2), # (B, 16, 64, 64)
-            Conv2dStack(networks_channels[0], out_channels=networks_channels[1], \
-                        kernel_size=4, stride=1, padding="same"),
-            nn.MaxPool2d(kernel_size=2, stride = 2), # (B, 32, 32, 32)
-            Conv2dStack(networks_channels[1], out_channels=networks_channels[2], \
-                        kernel_size=3, stride=1, padding="same"),
-            nn.MaxPool2d(kernel_size=2, stride = 2), # (B, 64, 16, 16)
-            Conv2dStack(networks_channels[2], out_channels=networks_channels[3], \
-                        kernel_size=3, stride=1, padding="same"),
-            nn.MaxPool2d(kernel_size=2, stride = 2), # (B, 64, 8, 8)
-            nn.Flatten()
-        )
+        self.in_channels = in_channels
+        self.latent_dim = latent_dim
+        self.network_capacity = network_capacity
+        self.image_size = image_size
+        self.nlayers = nlayers
+        if nlayers is None:
+            nlayers = int(math.log2(image_size))
+        networks_channels = [in_channels]+[network_capacity*2**i for i in range(nlayers)]
+        final_image_size = image_size//(2**nlayers)
 
+        # image size is expected to be a power of 2
+        seq_layers = []
+
+        for i in range(nlayers):
+            imsize = int(image_size/(2**i))
+            cin_channels = networks_channels[i]
+            cout_channels = networks_channels[i+1]
+            seq_layers.extend([
+                Conv2dStack(cin_channels, out_channels=cout_channels, kernel_size=min(3,imsize), stride=1, padding="same"),
+                nn.MaxPool2d(kernel_size=2, stride = 2)  
+            ])
+        seq_layers.append(nn.Flatten())
+        self.model = nn.Sequential(*seq_layers)
+
+        # We create the last layer that will output the latent space
+        self.latent_layer = nn.Linear(networks_channels[-1] * final_image_size * final_image_size, 2 * latent_dim)
         self.softplus = nn.Softplus()
-        self.latent_layer = nn.Linear(networks_channels[3] * 8 * 8, latent_dim * 2)
-
 
     def forward(self, x, eps = 1e-8):
         x = self.model(x)

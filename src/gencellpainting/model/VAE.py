@@ -28,19 +28,17 @@ class VAE(UnsupervisedImageGenerator):
         n_images_monitoring (int, optional): Number of images to monitor. Defaults to 6.
     """
     def __init__(self, latent_dim, in_channels, out_channels, alpha=0.1,\
-                 network_capacity=32,image_size=128,learning_rate=1e-3, \
-                epoch_monitoring_interval=1,n_images_monitoring=6):
+                 network_capacity=32,image_size=128,decoder_nlayers=None, encoder_nlayers=None,
+                 learning_rate=1e-3, epoch_monitoring_interval=1,n_images_monitoring=6):
 
         super(VAE, self).__init__(epoch_monitoring_interval=epoch_monitoring_interval, n_images_monitoring=n_images_monitoring, add_original=True)
-        #self.encoder = Encoder(in_channels=in_channels, latent_dim=latent_dim)
         self.encoder = EncoderWithPooling(in_channels=in_channels, latent_dim=latent_dim,\
-                                           network_capacity=network_capacity)
+                                           network_capacity=network_capacity, image_size=image_size, nlayers=encoder_nlayers)
         self.decoder = Decoder(latent_dim=latent_dim, out_channels=out_channels,\
-                                network_capacity=network_capacity, image_size=image_size)
-        self.latent_dim = latent_dim
-        self.alpha = alpha
-        self.learning_rate = learning_rate
-        self.network_capacity = network_capacity
+                                network_capacity=network_capacity, image_size=image_size, nlayers=decoder_nlayers)
+        
+        self.save_hyperparameters()
+
     
     def training_step(self, batch, batch_idx):
         X = batch
@@ -58,7 +56,7 @@ class VAE(UnsupervisedImageGenerator):
             torch.zeros_like(z, device=z.device),
             scale_tril=torch.eye(z.shape[-1], device=z.device).unsqueeze(0).expand(z.shape[0], -1, -1),
         )
-        loss_kl = self.alpha * torch.distributions.kl.kl_divergence(dist, std_normal).mean()
+        loss_kl = self.hparams.alpha * torch.distributions.kl.kl_divergence(dist, std_normal).mean()
         # Total loss
         total_loss = loss + loss_kl
 
@@ -83,7 +81,7 @@ class VAE(UnsupervisedImageGenerator):
             torch.zeros_like(z, device=z.device),
             scale_tril=torch.eye(z.shape[-1], device=z.device).unsqueeze(0).expand(z.shape[0], -1, -1),
         )
-        loss_kl = self.alpha * torch.distributions.kl.kl_divergence(dist, std_normal).mean()
+        loss_kl = self.hparams.alpha * torch.distributions.kl.kl_divergence(dist, std_normal).mean()
         # Total loss
         total_loss = loss + loss_kl
 
@@ -92,7 +90,7 @@ class VAE(UnsupervisedImageGenerator):
         return loss
     
     def configure_optimizers(self):
-        optimizer = torch.optim.Adam(self.parameters(), lr=self.learning_rate)
+        optimizer = torch.optim.Adam(self.parameters(), lr=self.hparams.learning_rate)
         scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.99)
         return [optimizer], [scheduler]
     

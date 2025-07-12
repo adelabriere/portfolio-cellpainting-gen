@@ -35,38 +35,25 @@ class UnsupervisedImageGenerator(L.LightningModule):
             sub_batch = batch[:min_dim,:,:,:]
             images = self.generate_images(batch = sub_batch, n=min_dim)
 
-            print("Monitored batch range {}-{} gen range {}-{}".format(sub_batch.min(),sub_batch.max(),images.min(),\
-                                                                       images.max(),))
 
-            # print("Flag value {}".format(self.add_original))
             if self.add_original: # we add the original
-                # print("Batch shape {} gene images shape {}".format(batch.size(),images.size()))
                 images = torch.cat([images,sub_batch],dim=1)
 
             B, C, H, W = images.size()
 
             images = images.view(B * C, H, W)
 
-            self.logger.experiment.add_image("imgs",multi_channel_tensor_to_flat_matrix(images,nrow=Nchannel),self.current_epoch)
-            
-            # split_images = torch.chunk(images,images.size(0),dim=0)
+            # We set the images values between 0 and 1
+            if images.min() < 0.0:
+                images = (images + 1.) / 2.
 
-            # # Saving the images
-            # for i,img in enumerate(split_images):
-            #     name_image = "img{}".format(i)
-            #     self.logger.experiment.add_image(name_image,multi_channel_tensor_to_flat_matrix(img.squeeze(),nrow=Nchannel),self.current_epoch)
-            
+
+            self.logger.experiment.add_image("imgs",multi_channel_tensor_to_flat_matrix(images,nrow=Nchannel),self.current_epoch)
+                        
             self.compute_metrics(batch)
 
     def compute_metrics(self,batch):
         pass
-        # nimages = batch.size(0)
-        # fake_images = self.generate_images(batch = batch, n=nimages)
-        # self.clip_frechet_distance.update(batch,is_real=True)
-        # self.clip_frechet_distance.update(fake_images,is_real=False)
-        # score = self.clip_frechet_distance.compute()
-        # self.log("FrechetCLIPDistance",float(score))
-        # self.clip_frechet_distance.reset()
 
     def generate_images(self, batch=None, n=6):
         raise NotImplementedError("Method need to be implemented")

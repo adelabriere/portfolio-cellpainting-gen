@@ -232,6 +232,7 @@ class UnetDbug(nn.Module):
         self.downs = nn.ModuleList([])
         self.ups = nn.ModuleList([])
         num_resolutions = len(in_out)
+        # self.final_activation = nn.Sigmoid()
 
         for ind, (dim_in, dim_out) in enumerate(in_out):
             is_last = ind >= (num_resolutions - 1)

@@ -68,10 +68,7 @@ class WGAN_GP(AbstractGAN):
         self.generator  = Decoder(noise_dim, out_channels, image_size=image_size, network_capacity=network_capacity)
         self.discriminator = WGANCritic(in_channels, image_size)
 
-        self.noise_dim = noise_dim
-        self.n_critic = n_critic
-        self.learning_rate = learning_rate
-        self.vlambda = vlambda
+        self.save_hyperparameters()
 
         # Classification loss
         self.classification_loss = F.binary_cross_entropy
@@ -80,7 +77,7 @@ class WGAN_GP(AbstractGAN):
 
     def sample_z(self, batch_size):
         # unirofrm between 0 and 1
-        Z = torch.rand(batch_size, self.noise_dim)
+        Z = torch.rand(batch_size, self.hparams.noise_dim)
         return Z
     
     def generate_images(self, batch, n):
@@ -140,7 +137,7 @@ class WGAN_GP(AbstractGAN):
 
         opt_gen,opt_disc = self.optimizers()
 
-        critic_images = critic_images.chunk(self.n_critic, dim=0)
+        critic_images = critic_images.chunk(self.hparams.n_critic, dim=0)
 
         # Training discriminator
         self.disable_generator_training()
@@ -151,7 +148,7 @@ class WGAN_GP(AbstractGAN):
         mones = torch.tensor(-1).to(real_images.device)
         ones = torch.tensor(1).to(real_images.device)
 
-        for ic in range(self.n_critic):
+        for ic in range(self.hparams.n_critic):
 
             opt_disc.zero_grad()
             # Sample the real data
@@ -170,18 +167,18 @@ class WGAN_GP(AbstractGAN):
             d_G_disc = d_G_disc.mean()
             self.manual_backward(d_G_disc,ones)
 
-            grad_penalty = self.vlambda*self.compute_gradient_penalty(R, G_Z)
+            grad_penalty = self.hparams.vlambda*self.compute_gradient_penalty(R, G_Z)
             self.manual_backward(grad_penalty)
 
             total_grad_penalty += grad_penalty
 
             # Loss used in the paper
-            D_loss_disc = d_G_disc - d_R_disc + self.vlambda * grad_penalty
+            D_loss_disc = d_G_disc - d_R_disc + self.hparams.vlambda * grad_penalty
 
             # Updating parameters
             opt_disc.step()
 
-        total_grad_penalty = total_grad_penalty / self.n_critic
+        total_grad_penalty = total_grad_penalty / self.hparams.n_critic
 
         # Training generator
         self.disable_discriminator_training()
@@ -204,8 +201,8 @@ class WGAN_GP(AbstractGAN):
         super().training_step(batch[0], batch_idx, None, None)
 
     def configure_optimizers(self):
-        opt_disc = torch.optim.RMSprop(self.discriminator.parameters(), lr=self.learning_rate)
-        opt_gen = torch.optim.RMSprop(self.generator.parameters(), lr=self.learning_rate)
+        opt_disc = torch.optim.RMSprop(self.discriminator.parameters(), lr=self.hparams.learning_rate)
+        opt_gen = torch.optim.RMSprop(self.generator.parameters(), lr=self.hparams.learning_rate)
         return opt_gen, opt_disc
 
 

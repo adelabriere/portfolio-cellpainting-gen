@@ -1,4 +1,5 @@
 import torch
+import math
 
 import torch.nn as nn
 import torch.nn.functional as F
@@ -27,7 +28,7 @@ class TransformerPositionalEmbedding(nn.Module):
     Directly taken from 'https://github.com/mattroz/diffusion-ddpm/blob/main/src/model/layers.py'
     From paper "Attention Is All You Need", section 3.5
     """
-    def __init__(self, dimension, max_timesteps=1000, device="cuda"):
+    def __init__(self, dimension, max_timesteps=10000, device="cuda"):
         super(TransformerPositionalEmbedding, self).__init__()
         assert dimension % 2 == 0, "Embedding dimension must be even"
         self.dimension = dimension
@@ -50,6 +51,23 @@ class TransformerPositionalEmbedding(nn.Module):
     def forward(self, timestep):
         # [bs, d_model]
         return self.pe_matrix[timestep]
+    
+class SinusoidalPositionEmbeddings(nn.Module):
+    def __init__(self, dim, timesteps=200):
+        super().__init__()
+        self.dim = dim
+        half_dim = self.dim // 2
+        embeddings = math.log(10000) / (half_dim - 1)
+        embeddings = torch.exp(torch.arange(half_dim) * -embeddings)
+        vtime = torch.arange(timesteps)
+        embeddings = vtime[:, None] * embeddings[None, :]
+        embeddings = torch.cat((embeddings.sin(), embeddings.cos()), dim=-1)
+        # Register the parameters as buffer
+        self.register_buffer("embeddings",embeddings)
+
+    def forward(self, time):
+        return self.embeddings[time,:]
+
 
 class DiffusionProcess(UnsupervisedImageGenerator):
     def __init__(self, in_channels, nsteps, model, time_dim=128,image_size=128,include_time_emb=True,\
@@ -87,7 +105,14 @@ class DiffusionProcess(UnsupervisedImageGenerator):
         self.time_dim = time_dim
         self.model = model
         if self.include_time_emb:
-            self.time_model = TransformerPositionalEmbedding(self.time_dim, max_timesteps=nsteps, device=device)
+            self.time_model = nn.Sequential(
+                SinusoidalPositionEmbeddings(32, timesteps=nsteps),
+                nn.Linear(32, time_dim),
+                nn.GELU(),
+                nn.Linear(time_dim, time_dim)
+            )
+        
+        self.save_hyperparameters()
 
     def gaussian_noise(self,images):
         epsilon = torch.randn(*images.size(),device=images.device)
@@ -210,4 +235,7 @@ class DiffusionProcess(UnsupervisedImageGenerator):
         
     
     def configure_optimizers(self):
-        return torch.optim.Adam(self.model.parameters(), lr=self.learning_rate)
+        to_optim = list(self.model.parameters())
+        if self.include_time_emb:
+            to_optim += list(self.time_model.parameters())
+        return torch.optim.Adam(to_optim, lr=self.learning_rate)
