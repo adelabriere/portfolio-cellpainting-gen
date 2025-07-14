@@ -1,0 +1,2 @@
+python src/script/optimize_parameters.py --folder "data/optim" --tensorfile "/mnt/c/Users/alexi/Documents/data/images/cellpainting/cpg0016-jump/data/jump_64px_uint8.pt" --config "data/optim/config/VAE_config.json"
+# python src/script/optimize_parameters.py --folder "data/optim" --tensorfile "/mnt/c/Users/alexi/Documents/data/images/cellpainting/cpg0016-jump/data/jump_64px_uint8.pt" --config "data/optim/config/WGANGP_config.json"

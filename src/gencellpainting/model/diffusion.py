@@ -70,14 +70,15 @@ class SinusoidalPositionEmbeddings(nn.Module):
 
 
 class DiffusionProcess(UnsupervisedImageGenerator):
-    def __init__(self, in_channels, nsteps, model, time_dim=128,image_size=128,include_time_emb=True,\
-                learning_rate = 5e-4,epoch_monitoring_interval=1, n_images_monitoring=6, device="cuda"):
+    def __init__(self, in_channels, nsteps, model, time_dim=128,alpha=0.1,image_size=128,include_time_emb=True,\
+                learning_rate = 5e-4,epoch_monitoring_interval=1, n_images_monitoring=6):
         super(DiffusionProcess, self).__init__(epoch_monitoring_interval=epoch_monitoring_interval, n_images_monitoring=n_images_monitoring, add_original=True)
         
         self.nsteps = nsteps
         self.in_channels = in_channels
         self.learning_rate = learning_rate
         self.include_time_emb = include_time_emb
+        self.alpha = alpha
         cbetas = linear_beta_scheduling(self.nsteps)
         #cbetas = cosine_beta_scheduling(self.nsteps)
         calphas = 1 - cbetas
@@ -115,8 +116,14 @@ class DiffusionProcess(UnsupervisedImageGenerator):
         self.save_hyperparameters()
 
     def gaussian_noise(self,images):
-        epsilon = torch.randn(*images.size(),device=images.device)
+        epsilon = torch.randn_like(images,device=images.device)
         return epsilon
+    
+    def offset_noise(self, images):
+        epsilon =self.gaussian_noise(images)
+        B,C,_,_ = images.shape
+        offset = torch.randn(B, C, 1, 1, device=images.device)
+        return epsilon + self.alpha*offset
 
     def q_sample(self, images, epsilon, t):
         B,C,H,W = images.size()
@@ -138,7 +145,8 @@ class DiffusionProcess(UnsupervisedImageGenerator):
         B,_,_,_ = batch.size()
 
         # Sampling noise
-        epsilon = self.gaussian_noise(images)
+        epsilon = self.offset_noise(images)
+        # epsilon = self.gaussian_noise(images)
 
         # Sampling t
         t = torch.randint(low=0,high=self.nsteps, size = (B,)).to(batch.device)

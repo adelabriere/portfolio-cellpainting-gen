@@ -46,7 +46,7 @@ class EncoderWithPooling(nn.Module):
 
 
 class Decoder(nn.Module):
-    def __init__(self, latent_dim, out_channels, network_capacity = 32, kernel_size=4,\
+    def __init__(self, latent_dim, out_channels, network_capacity = 32, kernel_size=3,\
                  image_size=128, nlayers=None):
         super(Decoder, self).__init__()
         self.latent_dim = latent_dim
@@ -62,7 +62,7 @@ class Decoder(nn.Module):
         if nlayers is None:
             nlayers = int(math.log2(self.image_size)-1)
 
-        networks_channels = [network_capacity*2**i for i in range(1,nlayers)]
+        networks_channels = [network_capacity*2**i for i in range(1,nlayers+1)]
         self.networks_channels = networks_channels[::-1]
 
         layers_list = []
@@ -71,24 +71,23 @@ class Decoder(nn.Module):
             Conv2dTransposeStack(self.latent_dim, out_channels=self.networks_channels[0],\
                 kernel_size=4, stride=1, padding=0, output_padding=0,activation_args={},
                       activation=self.activation, bias=self.bias),#(B, latent_dim, 4, 4)
-            
         )
 
-        for ilayer in range(0, nlayers-2):
+        for ilayer in range(0, nlayers-1):
             cin = self.networks_channels[ilayer]
             cout = self.networks_channels[ilayer+1]
             cstride = 2
             layers_list.append(
                 Conv2dTransposeStack(cin, out_channels=cout, kernel_size=self.kernel_size, stride=cstride,\
-                                padding=1, output_padding=0, activation_args={},\
+                                padding=1, output_padding=1, activation_args={},\
                                     activation=self.activation, bias=self.bias) #(B, cout, 4*2**(ilayer+1), 4*2**(ilayer+1))
             )
 
         self.net = nn.Sequential(*layers_list)
         
         self.output_layers = nn.Sequential(
-            nn.ConvTranspose2d(self.networks_channels[-1], out_channels=out_channels, kernel_size=4,\
-                                    stride=2, padding=1, bias=self.bias), # Output: (B, out_channels, 128, 128)
+            nn.ConvTranspose2d(self.networks_channels[-1], out_channels=out_channels, kernel_size=self.kernel_size,\
+                                    stride=1, bias=self.bias, padding=1), # Output: (B, out_channels, 128, 128)
             nn.Sigmoid()
         )
 

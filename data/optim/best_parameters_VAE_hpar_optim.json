@@ -1,0 +1,1 @@
+{"in_channels": 5, "out_channels": 5, "epoch_monitoring_interval": 1, "image_size": 64, "learning_rate": 0.0005, "alpha": 1e-05, "latent_dim": 512, "n_images_monitoring": 6, "encoder_network_capacity": 8, "decoder_network_capacity": 16, "encoder_nlayers": 3, "decoder_nlayers": 5}

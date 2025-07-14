@@ -22,7 +22,7 @@ else:
     _TORCHVISION_AVAILABLE = False
 
 
-NAME_MODEL = "openai/clip-vit-base-patch32"
+NAME_MODEL = "openai/clip-vit-base-patch16"
 
 TFrechetInceptionDistance = TypeVar("TFrechetInceptionDistance")
 
@@ -80,7 +80,7 @@ class FIDCLIP(nn.Module):
             tensor = tensor.view(ts[0]*ts[1],*ts[2:])
         return tensor.split(3,dim=0)
 
-
+    @torch.inference_mode()
     def forward(self, x: Tensor) -> Tensor:
     # Input tensor: B x C x H x W
         B, C, _, _ = x.shape
@@ -96,20 +96,8 @@ class FrechetCLIPDistance(Metric):
         self,
         model: Optional[nn.Module] = None,
         feature_dim: int = 512,
+        images_multiplier = 1.0,
     ) -> None:
-        """
-        Computes the Frechet Inception Distance (FID) between two distributions of images (real and generated).
-
-        The original paper: https://arxiv.org/pdf/1706.08500.pdf
-
-        Args:
-            model (nn.Module): Module used to compute feature activations.
-                If None, a default InceptionV3 model will be used.
-            feature_dim (int): The number of features in the model's output,
-                the default number is 2048 for default InceptionV3.
-            device (torch.device): The device where the computations will be performed.
-                If None, the default device will be used.
-        """
         _validate_torchvision_available()
 
         super().__init__()
@@ -121,6 +109,7 @@ class FrechetCLIPDistance(Metric):
 
         # Set the model and put it in evaluation mode
         self.model = model
+        self.images_multiplier = images_multiplier
         self.model.eval()
         self.model.requires_grad_(False)
 
@@ -135,7 +124,8 @@ class FrechetCLIPDistance(Metric):
         )
         self.add_state("num_real_images", torch.tensor(0).int())
         self.add_state("num_fake_images", torch.tensor(0).int())
-
+        self.add_state("num_real_batches", torch.tensor(0).int())
+        self.add_state("num_fake_batches", torch.tensor(0).int())
 
     @torch.inference_mode()
     # pyre-ignore[14]: inconsistent override on *_:Any, **__:Any
@@ -155,19 +145,21 @@ class FrechetCLIPDistance(Metric):
         images = images.to(self.device)
 
         # Compute activations for images using the given model
-        activations = self.model(images)
+        features = self.model(images)
 
         batch_size = images.shape[0]
 
         # Update the state variables used to compute FID
         if is_real:
             self.num_real_images += batch_size
-            self.real_sum += torch.sum(activations, dim=0)
-            self.real_cov_sum += torch.matmul(activations.T, activations)
+            self.num_real_batches += 1
+            self.real_sum += torch.sum(features, dim=0)
+            self.real_cov_sum += torch.matmul(features.T, features)
         else:
             self.num_fake_images += batch_size
-            self.fake_sum += torch.sum(activations, dim=0)
-            self.fake_cov_sum += torch.matmul(activations.T, activations)
+            self.num_fake_batches += 1
+            self.fake_sum += torch.sum(features, dim=0)
+            self.fake_cov_sum += torch.matmul(features.T, features)
 
         return self
 
@@ -218,10 +210,14 @@ class FrechetCLIPDistance(Metric):
         fake_mean = (self.fake_sum / self.num_fake_images).unsqueeze(0)
 
         # Compute the covariance matrices for each distribution
+        # real_cov_num = self.real_cov_sum/self.num_real_images
+        # real_cov = self.real_cov_sum - self.num_real_images * (real_mean.T @ real_mean)
         real_cov_num = self.real_cov_sum - self.num_real_images * torch.matmul(
             real_mean.T, real_mean
         )
         real_cov = real_cov_num / (self.num_real_images - 1)
+        # fake_cov_num = self.fake_cov_sum/self.num_fake_images
+        # fake_cov = fake_cov_num - fake_mean @ fake_mean.T        
         fake_cov_num = self.fake_cov_sum - self.num_fake_images * torch.matmul(
             fake_mean.T, fake_mean
         )
@@ -264,16 +260,18 @@ class FrechetCLIPDistance(Metric):
 
         # Compute the eigenvalues of the matrix product of the real and fake covariance matrices
         # sigma_mm = torch.matmul(sigma1, sigma2)
-        eigenvals = torch.linalg.eigvals(sigma_mm)
+        eigval = torch.linalg.eigvals(sigma_mm).sqrt().real
+        sqrt_eigenvals_sum = eigval.sum(dim=-1)
 
-        # Take the square root of each eigenvalue and take its sum
-        sqrt_eigenvals_sum = eigenvals.sqrt().real.sum(dim=-1)
 
         # Calculate the FID using the squared distance between the means,
         # the sum of the traces of the covariance matrices, and the sum of the square roots of the eigenvalues
+        print("mean_diff_squared range {} trace_sum range {} sqrt_eigenvals_sum range {}".format(
+            mean_diff_squared,trace_sum, sqrt_eigenvals_sum
+        ))
         fid = mean_diff_squared + trace_sum - 2 * sqrt_eigenvals_sum
 
-        return fid
+        return fid, sigma1, sigma2, mu1, mu2
 
     def _FID_parameter_check(
         self,

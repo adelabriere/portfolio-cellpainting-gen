@@ -113,7 +113,7 @@ def optimize_parameters(args):
     best_params = grid_search.get_best_params()
 
 
-    params_paths = write_params(complete_folder, args.name, best_params)
+    params_paths = write_params(complete_folder, config["name_model"], best_params)
     return params_paths
 
 def write_params(folder, name, params):
@@ -127,21 +127,17 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--folder", help="Store the results of the optimization.",
                     type=str)
-    parser.add_argument("--name", help="Name of the model.",
-                    type=str)
     parser.add_argument("--tensorfile", help="File of the dataset/tensor to use as dataset for optimization.",
                     type=str)
     parser.add_argument("--config", help="The config json file storing the parameters")
-    
     args = parser.parse_args()
 
+
     check_args(args)
-    best_params = optimize_parameters(args)
-    params_paths = write_params(args.folder, args.name, best_params)
+    params_path = optimize_parameters(args)
+    print("Parameters have been written in {}".format(params_path))
 
-    print("Parameters have been written in {}".format(params_paths))
-
-# python src/script/optimize_parameters.py --folder "data/optim" --name "VAE_script" --tensorfile "/mnt/c/Users/alexi/Documents/data/images/cellpainting/cpg0016-jump/data/jump_128px_uint8.pt" --config "data/optim/config/VAE_config.json"
+# python src/script/optimize_parameters.py --folder "data/optim" --tensorfile "/mnt/c/Users/alexi/Documents/data/images/cellpainting/cpg0016-jump/data/jump_128px_uint8.pt" --config "data/optim/config/VAE_config.json"
 
 
 

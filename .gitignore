@@ -13,6 +13,11 @@ src/gencellpainting/sandbox/__pycache__
 src/gencellpainting/sandbox/__pycache__/*
 src/notebooks/log_tensorboard
 src/notebooks/log_tensorboard/*
+**/log_tensorboard/*
 data/models/*
-data/optim/*
+data/optim/ignored/*
+data/optim/ignored
 data/optimization/*
+ignored/*
+ignored
+output/*

@@ -28,14 +28,15 @@ class VAE(UnsupervisedImageGenerator):
         n_images_monitoring (int, optional): Number of images to monitor. Defaults to 6.
     """
     def __init__(self, latent_dim, in_channels, out_channels, alpha=0.1,\
-                 network_capacity=32,image_size=128,decoder_nlayers=None, encoder_nlayers=None,
+                 encoder_network_capacity=32,decoder_network_capacity=64,
+                 image_size=128,decoder_nlayers=None, encoder_nlayers=None,
                  learning_rate=1e-3, epoch_monitoring_interval=1,n_images_monitoring=6):
 
         super(VAE, self).__init__(epoch_monitoring_interval=epoch_monitoring_interval, n_images_monitoring=n_images_monitoring, add_original=True)
         self.encoder = EncoderWithPooling(in_channels=in_channels, latent_dim=latent_dim,\
-                                           network_capacity=network_capacity, image_size=image_size, nlayers=encoder_nlayers)
+                                           network_capacity=encoder_network_capacity, image_size=image_size, nlayers=encoder_nlayers)
         self.decoder = Decoder(latent_dim=latent_dim, out_channels=out_channels,\
-                                network_capacity=network_capacity, image_size=image_size, nlayers=decoder_nlayers)
+                                network_capacity=decoder_network_capacity, image_size=image_size, nlayers=decoder_nlayers)
         
         self.save_hyperparameters()
 
