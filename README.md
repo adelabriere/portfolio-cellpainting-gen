@@ -1,6 +1,6 @@
 # Cell Painting Data Generation
 
-This notebook aims to explore various algorithms of image generations for Cell Painting Assay images. The goal is to generate realistic image with small scale model, running on a single laptop. 
+This notebook aims to explore various algorithms of image generations for Cell Painting Assay images. The goal is to generate realistic image with small scale model, running on a single laptop. Examples of the images generated are at the end of this Readme.
 
 ## Data
 
